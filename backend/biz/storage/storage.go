@@ -75,7 +75,7 @@ func (s *Storage) InsertWork(w model.Work) error {
 	return s.db.From("work").Update(w)
 }
 
-func (s *Storage) GetWorks(uperUID string) (resp []model.Work) {
+func (s *Storage) GetWorksByUper(uperUID string) (resp []model.Work) {
 	s.db.From("work").Find("UperUID", uperUID, &resp)
 	return
 }
@@ -92,8 +92,7 @@ func (s *Storage) UperAddWork(uperUID string, workID string) error {
 	}
 	u.Works = append(u.Works, workID)
 	u.UpdateTime = time.Now()
-	s.db.Update(u)
-	return nil
+	return s.db.Update(u)
 }
 
 func (s *Storage) InsertUper(input model.Uper) error {
@@ -112,8 +111,9 @@ func (s *Storage) GetUper(id int64, uid string) (resp model.Uper) {
 }
 
 type GetUpersOpt struct {
-	FilterBlack bool
-	OnlyLike    bool
+	FilterDelete bool
+	OnlyLike     bool
+	Tags         []string
 }
 
 func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Uper) {
@@ -122,8 +122,11 @@ func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, toke
 	if opt.OnlyLike {
 		qs = append(qs, q.Eq("IsLike", true))
 	}
-	if opt.FilterBlack {
-		qs = append(qs, q.Eq("IsBlack", false))
+	if opt.FilterDelete {
+		qs = append(qs, q.Eq("IsDelete", false))
+	}
+	if len(opt.Tags) > 0 {
+		qs = append(qs, q.In("Tags", opt.Tags))
 	}
 	if token != "" {
 		id, _ := strconv.Atoi(token)
@@ -133,7 +136,32 @@ func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, toke
 	}
 	err := s.db.From("uper").Select(qs...).OrderBy("ID").Reverse().Limit(limit).Find(&resp)
 	if err != nil {
-		logger.Errorf("Range err:%v", err)
+		logger.Errorf("Find err:%v", err)
+	}
+	if len(resp) > 0 {
+		nextToken = strconv.Itoa(int(resp[len(resp)-1].ID))
+	}
+	return
+}
+
+func (s *Storage) GetWorks(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Work) {
+	logger, _ := logutil.CtxLog(ctx, "GetWorks")
+	qs := []q.Matcher{}
+	if opt.OnlyLike {
+		qs = append(qs, q.Eq("IsLike", true))
+	}
+	if opt.FilterDelete {
+		qs = append(qs, q.Eq("IsDelete", false))
+	}
+	if token != "" {
+		id, _ := strconv.Atoi(token)
+		if id > 0 {
+			qs = append(qs, q.Lt("ID", id))
+		}
+	}
+	err := s.db.From("work").Select(qs...).OrderBy("ID").Reverse().Limit(limit).Find(&resp)
+	if err != nil {
+		logger.Errorf("Find err:%v", err)
 	}
 	if len(resp) > 0 {
 		nextToken = strconv.Itoa(int(resp[len(resp)-1].ID))

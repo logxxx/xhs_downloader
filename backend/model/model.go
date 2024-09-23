@@ -12,7 +12,7 @@ type Uper struct {
 	Works      []string
 	Tags       []string
 	IsLike     bool
-	IsBlack    bool
+	IsDelete   bool
 	CreateTime time.Time
 	UpdateTime time.Time
 }
