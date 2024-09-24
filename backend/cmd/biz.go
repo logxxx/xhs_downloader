@@ -1,9 +1,10 @@
-package cmd
+package main
 
 import (
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/xhs"
+	"github.com/logxxx/xhs_downloader/config"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 )
@@ -34,7 +35,7 @@ func StartDownload() {
 
 		tryRefreshUperInfo(noteInfo.UperUID)
 
-		noteInfo, err = DownloadNote(noteInfo)
+		noteInfo, err = DownloadNote(noteInfo, config.GetConfig().DownloadPath)
 		if err != nil {
 			log.Errorf("xhs.GetNote err:%v noteInfo:%+v", err, noteInfo)
 			continue
@@ -50,7 +51,7 @@ func StartDownload() {
 
 }
 
-func DownloadNote(n model.Note) (resp model.Note, err error) {
+func DownloadNote(n model.Note, downloadPath string) (resp model.Note, err error) {
 	return
 }
 
@@ -67,8 +68,4 @@ func tryRefreshUperInfo(uid string) {
 		return
 	}
 	storage.GetStorage().InsertUper(uper)
-}
-
-func InitWeb() {
-
 }
