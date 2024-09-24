@@ -49,8 +49,17 @@ func (s *Storage) initDB() {
 	s.db = db
 }
 
-func (s *Storage) UpdateWorkByWorkID(workID string, h func(w model.Work) model.Work) (err error) {
-	w := s.GetWork(workID)
+func (s *Storage) SetNoteDownloaded(noteID string) {
+	s.db.Set("downloaded_note", noteID, time.Now().Unix())
+}
+
+func (s *Storage) IsNoteDownloaded(noteID string) bool {
+	ok, _ := s.db.KeyExists("downloaded_note", noteID)
+	return ok
+}
+
+func (s *Storage) UpdateNoteBynoteID(noteID string, h func(w model.Note) model.Note) (err error) {
+	w := s.GetNote(noteID)
 	if w.ID <= 0 {
 		return
 	}
@@ -58,39 +67,39 @@ func (s *Storage) UpdateWorkByWorkID(workID string, h func(w model.Work) model.W
 	if reflect.DeepEqual(w, newW) {
 		return
 	}
-	return s.UpdateWork(newW)
+	return s.UpdateNote(newW)
 }
 
-func (s *Storage) GetWork(workID string) model.Work {
-	w := model.Work{}
-	s.db.From("work").One("WorkID", workID, &w)
+func (s *Storage) GetNote(noteID string) model.Note {
+	w := model.Note{}
+	s.db.From("Note").One("noteID", noteID, &w)
 	return w
 }
 
-func (s *Storage) UpdateWork(w model.Work) error {
-	return s.db.From("work").Save(w)
+func (s *Storage) UpdateNote(w model.Note) error {
+	return s.db.From("Note").Save(w)
 }
 
-func (s *Storage) InsertWork(w model.Work) error {
-	return s.db.From("work").Update(w)
+func (s *Storage) InsertNote(w model.Note) error {
+	return s.db.From("Note").Update(w)
 }
 
-func (s *Storage) GetWorksByUper(uperUID string) (resp []model.Work) {
-	s.db.From("work").Find("UperUID", uperUID, &resp)
+func (s *Storage) GetNotesByUper(uperUID string) (resp []model.Note) {
+	s.db.From("Note").Find("UperUID", uperUID, &resp)
 	return
 }
 
-func (s *Storage) UperAddWork(uperUID string, workID string) error {
+func (s *Storage) UperAddNote(uperUID string, noteID string) error {
 	u := s.GetUper(0, uperUID)
 	if u.ID <= 0 {
 		return errors.New("uper not found")
 	}
-	for _, w := range u.Works {
-		if w == workID {
+	for _, w := range u.Notes {
+		if w == noteID {
 			return nil
 		}
 	}
-	u.Works = append(u.Works, workID)
+	u.Notes = append(u.Notes, noteID)
 	u.UpdateTime = time.Now()
 	return s.db.Update(u)
 }
@@ -144,8 +153,8 @@ func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, toke
 	return
 }
 
-func (s *Storage) GetWorks(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Work) {
-	logger, _ := logutil.CtxLog(ctx, "GetWorks")
+func (s *Storage) GetNotes(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Note) {
+	logger, _ := logutil.CtxLog(ctx, "GetNotes")
 	qs := []q.Matcher{}
 	if opt.OnlyLike {
 		qs = append(qs, q.Eq("IsLike", true))
@@ -159,7 +168,7 @@ func (s *Storage) GetWorks(ctx context.Context, opt GetUpersOpt, limit int, toke
 			qs = append(qs, q.Lt("ID", id))
 		}
 	}
-	err := s.db.From("work").Select(qs...).OrderBy("ID").Reverse().Limit(limit).Find(&resp)
+	err := s.db.From("Note").Select(qs...).OrderBy("ID").Reverse().Limit(limit).Find(&resp)
 	if err != nil {
 		logger.Errorf("Find err:%v", err)
 	}

@@ -9,7 +9,7 @@ type Uper struct {
 	AvatarURL  string
 	Sex        string
 	Desc       string
-	Works      []string
+	Notes      []string
 	Tags       []string
 	IsLike     bool
 	IsDelete   bool
@@ -17,9 +17,9 @@ type Uper struct {
 	UpdateTime time.Time
 }
 
-type Work struct {
+type Note struct {
 	ID             int64
-	WorkID         string
+	NoteID         string
 	UperUID        string
 	Title          string
 	Content        string
