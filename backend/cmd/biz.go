@@ -23,6 +23,11 @@ func StartDownload() {
 		return nil
 	})
 
+	if len(allNotes) <= 0 {
+		log.Printf("StartDownload return: all notes is empty")
+		return
+	}
+
 	for _, n := range allNotes {
 		if storage.GetStorage().IsNoteDownloaded(n) {
 			continue
@@ -41,9 +46,9 @@ func StartDownload() {
 			continue
 		}
 
-		err = storage.GetStorage().InsertNote(noteInfo)
+		_, err = storage.GetStorage().InsertOrUpdateNote(noteInfo)
 		if err != nil {
-			log.Errorf("InsertNote err:%v noteInfo:%+v", err, noteInfo)
+			log.Errorf("InsertOrUpdateNote err:%v noteInfo:%+v", err, noteInfo)
 			continue
 		}
 
@@ -67,5 +72,5 @@ func tryRefreshUperInfo(uid string) {
 	if uper.UID == "" {
 		return
 	}
-	storage.GetStorage().InsertUper(uper)
+	storage.GetStorage().InsertOrUpdateUper(uper)
 }

@@ -22,9 +22,6 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	if _globalCfg.Port == 0 {
-		_globalCfg.Port = 8080
-	}
 }
 
 func GetConfig() *GlobalConfig {

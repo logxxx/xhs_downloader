@@ -1,1 +1,3 @@
 /.idea
+/backend/cmd/chore/core.db
+/backend/cmd/chore/upers.txt
