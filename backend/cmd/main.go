@@ -7,7 +7,9 @@ import (
 )
 
 func main() {
-	runutil.GoRunSafe(StartGetNotes)
+	//runutil.GoRunSafe(StartGetNotes)
+
+	runutil.GoRunSafe(DownloadNotePoster)
 
 	runutil.GoRunSafe(StartDownload)
 

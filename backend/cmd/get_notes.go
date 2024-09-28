@@ -11,7 +11,7 @@ import (
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/model"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"strings"
 	"time"
