@@ -9,6 +9,8 @@ import (
 func main() {
 	//runutil.GoRunSafe(StartGetNotes)
 
+	runutil.GoRunSafe(DownloadUperAvatar)
+
 	runutil.GoRunSafe(DownloadNotePoster)
 
 	runutil.GoRunSafe(StartDownload)

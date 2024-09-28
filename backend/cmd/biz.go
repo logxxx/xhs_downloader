@@ -77,6 +77,52 @@ func tryRefreshUperInfo(uid string) {
 	storage.GetStorage().InsertOrUpdateUper(uper)
 }
 
+func DownloadUperAvatar() {
+	failedCount := 0
+	storage.GetStorage().EachUper(func(u model.Uper, currCount, totalCount int) (e error) {
+
+		if u.AvatarURL == "" {
+			return
+		}
+
+		log.Printf("DownloadUperAvatar progress %v/%v name:%v", currCount, totalCount, u.Name)
+
+		path := filepath.Join(config.GetDownloadPath(), "uper_avatar", fmt.Sprintf("%v.jpg", u.UID))
+
+		if utils.HasFile(path) {
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+
+		code, resp, err := netutil.HttpGetRaw(u.AvatarURL)
+		if err != nil {
+			log.Printf("EachNote netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
+			return
+		}
+
+		if code != 200 || len(resp) <= 1024 {
+			failedCount++
+			log.Printf("EachUper netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
+			if failedCount > 3 {
+				panic(failedCount)
+			}
+			return
+		}
+		failedCount = 0
+
+		err = fileutil.WriteToFile(resp, path)
+		if err != nil {
+			log.Printf("WriteToFile err:%v resp:%v", err, resp)
+			return
+		}
+		log.Printf("EachNote WriteToFile succ:%v len(resp):%v", path, utils.GetShowSize(int64(len(resp))))
+
+		return
+
+	})
+}
+
 func DownloadNotePoster() {
 
 	failedCount := 0

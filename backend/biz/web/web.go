@@ -12,13 +12,20 @@ import (
 	"time"
 )
 
+type GetUpersResp struct {
+	Data  []model.Uper `json:"data"`
+	Token string       `json:"token"`
+}
+
 type GetNotesResp struct {
 	Data  []model.Note `json:"data"`
 	Token string       `json:"token"`
 }
 
 func InitWeb() {
+
 	g := gin.Default()
+
 	g.GET("/now", func(c *gin.Context) {
 		c.String(200, time.Now().Format("2006-01-02 15:04:05"))
 	})
@@ -27,18 +34,22 @@ func InitWeb() {
 		resp := storage.GetStorage().GetNoteTotalCount()
 		c.JSON(200, resp)
 	})
+
 	g.GET("/all_uper_count", func(c *gin.Context) {
 		resp := storage.GetStorage().GetUperTotalCount()
 		c.JSON(200, resp)
 	})
+
 	g.GET("/all_note", func(c *gin.Context) {
 		resp := storage.GetStorage().GetAllNotes(c)
 		c.JSON(200, resp)
 	})
+
 	g.GET("/all_uper", func(c *gin.Context) {
 		resp := storage.GetStorage().GetAllNotes(c)
 		c.JSON(200, resp)
 	})
+
 	g.GET("/uper", func(c *gin.Context) {
 		uid := c.Query("uid")
 		if uid == "" {
@@ -52,6 +63,7 @@ func InitWeb() {
 		}
 		reqresp.MakeResp(c, u)
 	})
+
 	g.GET("/update_uper", func(c *gin.Context) {
 
 		uid := c.Query("uid")
@@ -108,9 +120,26 @@ func InitWeb() {
 		}
 		c.JSON(200, resp)
 	})
+
+	g.GET("/upers", func(c *gin.Context) {
+		token := c.Query("token")
+		limitStr := c.Query("limit")
+		limit, _ := strconv.Atoi(limitStr)
+		if limit <= 0 {
+			limit = 10
+		}
+		upers, nextToken := storage.GetStorage().GetUpers(c, storage.GetUpersOpt{}, limit, token)
+		resp := &GetUpersResp{
+			Data:  upers,
+			Token: nextToken,
+		}
+		c.JSON(200, resp)
+	})
+
 	port := config.GetConfig().Port
 	if port <= 0 {
 		port = 8080
 	}
+
 	g.Run(fmt.Sprintf(":%v", port))
 }

@@ -200,7 +200,7 @@ type GetUpersOpt struct {
 	Tags         []string
 }
 
-func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Uper) {
+func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (resp []model.Uper, nextToken string) {
 	logger, _ := logutil.CtxLog(ctx, "GetUpers")
 	qs := []q.Matcher{}
 	if opt.OnlyLike {
@@ -238,7 +238,7 @@ func (s *Storage) GetAllUpers(ctx context.Context) (resp []model.Uper) {
 	return
 }
 
-func (s *Storage) EachUper(fn func(n model.Uper, totalCount, currCount int) (e error)) (err error) {
+func (s *Storage) EachUper(fn func(n model.Uper, currCount, totalCount int) (e error)) (err error) {
 
 	total := s.GetUperTotalCount()
 
@@ -247,16 +247,21 @@ func (s *Storage) EachUper(fn func(n model.Uper, totalCount, currCount int) (e e
 	for {
 		upers := []model.Uper{}
 		options := []func(*index.Options){storm.Limit(100)}
-		err = s.db.From("uper").Range("ID", lastID, int64(math.MaxInt64), &upers, options...)
+		err = s.db.From("uper").Range("ID", lastID+1, int64(math.MaxInt64), &upers, options...)
 		if err != nil {
 			return
 		}
 		if len(upers) <= 0 {
 			break
 		}
+
+		if upers[0].ID == lastID {
+			break
+		}
+
 		for _, n := range upers {
 			currCount++
-			err = fn(n, total, currCount)
+			err = fn(n, currCount, total)
 			if err != nil {
 				return err
 			}
@@ -278,13 +283,18 @@ func (s *Storage) EachNote(fn func(n model.Note, currCount, totalCount int) (e e
 	for {
 		notes := []model.Note{}
 		options := []func(*index.Options){storm.Limit(100)}
-		err = s.db.From("note").Range("ID", lastID, int64(math.MaxInt64), &notes, options...)
+		err = s.db.From("note").Range("ID", lastID+1, int64(math.MaxInt64), &notes, options...)
 		if err != nil {
 			return
 		}
 		if len(notes) <= 0 {
 			break
 		}
+
+		if notes[0].ID == lastID {
+			break
+		}
+
 		for _, n := range notes {
 			currCount++
 			err = fn(n, currCount, total)
