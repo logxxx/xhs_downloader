@@ -9,7 +9,7 @@ import (
 func main() {
 	runutil.GoRunSafe(StartGetNotes)
 
-	runutil.GoRunSafe(StartDownload)
+	runutil.GoRunSafe(StartDownloadNote)
 
 	runutil.GoRunSafe(web.InitWeb)
 

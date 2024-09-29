@@ -12,7 +12,7 @@ import (
 type DownloadNoteResp struct {
 }
 
-func StartDownload() {
+func StartDownloadNote() {
 
 	allNotes := []string{}
 	fileutil.ReadByLine("chore/all_notes.txt", func(s string) error {
@@ -24,7 +24,7 @@ func StartDownload() {
 	})
 
 	if len(allNotes) <= 0 {
-		log.Printf("StartDownload return: all notes is empty")
+		log.Printf("StartDownloadNote return: all notes is empty")
 		return
 	}
 

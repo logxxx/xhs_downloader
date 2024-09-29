@@ -39,35 +39,45 @@ func StartGetNotes() {
 	log.Printf("get %v upers", len(upers))
 
 	continueNoNoteCount := 0
+	downloadedCount := 0
 	for i, u := range upers {
 
-		if i > 0 && i%10 == 0 {
+		if downloadedCount > 500 && i > 0 && i%10 == 0 {
 			log.Printf("sleep for i%%10==0")
-			time.Sleep(10 * time.Minute)
+			time.Sleep(1 * time.Minute)
 		}
 
-		if i > 0 && i%100 == 0 {
-			log.Printf("change cookie for i%100==0")
+		if downloadedCount > 500 && i > 0 && i%100 == 0 {
+			log.Printf("change cookie for i%%100==0")
 			changeCookie()
 		}
 
-		log.Printf("deal uper %v/%v", i+1, len(upers))
+		log.Printf("deal parseUper %v/%v %v", i+1, len(upers), u)
 
-		if storage.GetStorage().IsUperScanned(u) {
+		uper := storage.GetStorage().GetUper(0, u)
+		if len(uper.Notes) != 0 && len(uper.Notes) != 14 {
 			continue
 		}
-		uper, notes, err := getNotes(u, cookie)
+		//if storage.GetStorage().IsUperScanned(u) {
+		//	continue
+		//}
+		parseUper, parseNotes, err := getNotes(u, cookie)
 		if err != nil {
-			log.Printf("get notes err:%v uid:%v", err, u)
+			log.Printf("get parseNotes err:%v uid:%v", err, u)
 			continue
 		}
-		log.Printf("uper [%v_%v] get [%v] notes", uper.UID, uper.Name, len(notes))
+		log.Printf("parseUper [%v_%v] get [%v] parseNotes", parseUper.UID, parseUper.Name, len(parseNotes))
 
-		if len(notes) == 0 {
+		if len(parseNotes) <= len(utils.RemoveDuplicate(uper.Notes)) {
+			continue
+		}
+
+		if len(parseNotes) == 0 {
 			continueNoNoteCount++
 			changeCookie()
 		} else {
 			continueNoNoteCount = 0
+			downloadedCount += len(parseNotes)
 		}
 
 		if continueNoNoteCount > 5 {
@@ -78,33 +88,41 @@ func StartGetNotes() {
 		}
 
 		modelUper := model.Uper{
-			UID:        uper.UID,
-			Name:       uper.Name,
-			Area:       uper.Area,
-			AvatarURL:  uper.AvatarURL,
-			IsGirl:     uper.IsGirl,
-			Desc:       uper.Desc,
-			Tags:       uper.Tags,
-			CreateTime: time.Now(),
-			UpdateTime: time.Now(),
+			UID:              parseUper.UID,
+			Name:             parseUper.Name,
+			Area:             parseUper.Area,
+			AvatarURL:        parseUper.AvatarURL,
+			IsGirl:           parseUper.IsGirl,
+			Desc:             parseUper.Desc,
+			Tags:             parseUper.Tags,
+			FansCount:        parseUper.FansCount,
+			ReceiveLikeCount: parseUper.ReceiveLikeCount,
+			CreateTime:       time.Now(),
+			UpdateTime:       time.Now(),
 		}
 		result, err := storage.GetStorage().InsertOrUpdateUper(modelUper)
 		if err != nil {
-			log.Printf("InsertOrUpdateUper err:%v uper:%+v", err, modelUper)
+			log.Printf("InsertOrUpdateUper err:%v parseUper:%+v", err, modelUper)
 			continue
 		}
 		log.Printf("InsertOrUpdateUper succ:%+v result:%v", modelUper, result)
 		storage.GetStorage().SetUperScanned(u)
 
-		for _, n := range notes {
-			failedReason, err := storage.GetStorage().UperAddNote(uper.UID, n.NoteID)
-			if err != nil {
-				log.Printf("UperAddNote err:%v uid:%v noteid:%v", err, uper.UID, n.NoteID)
-			} else if failedReason != "" {
-				log.Printf("UperAddNote failed:%v uid:%v noteid:%v", failedReason, uper.UID, n.NoteID)
-			} else {
-				log.Printf("UperAddNote succ. uid:%v noteid:%v", uper.UID, n.NoteID)
-			}
+		allParseNotes := []string{}
+		for _, n := range parseNotes {
+			allParseNotes = append(allParseNotes, n.NoteID)
+		}
+		failedReason, err := storage.GetStorage().UperAddNote(parseUper.UID, allParseNotes...)
+		if err != nil {
+			log.Printf("UperAddNote err:%v uid:%v noteid:%v", err, parseUper.UID, allParseNotes)
+		} else if failedReason != "" {
+			log.Printf("UperAddNote failed:%v uid:%v noteid:%v", failedReason, parseUper.UID, allParseNotes)
+		} else {
+			//log.Printf("UperAddNote succ. uid:%v noteid:%v", parseUper.UID, n.NoteID)
+		}
+
+		for _, n := range parseNotes {
+
 			dbNote := model.Note{
 				NoteID:    n.NoteID,
 				UperUID:   u,
@@ -118,7 +136,8 @@ func StartGetNotes() {
 				log.Printf("InsertOrUpdateNote err:%v dbNote:%+v", err, dbNote)
 				continue
 			}
-			log.Printf("InsertOrUpdateNote succ: %+v insertOrUpdate:%v", dbNote, insertOrUpdate)
+			_ = insertOrUpdate
+			//log.Printf("InsertOrUpdateNote succ: %+v insertOrUpdate:%v", dbNote, insertOrUpdate)
 		}
 	}
 }
@@ -163,12 +182,18 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 
 			round := 0
 			lastRoundNotes := ""
+
+			sameCount := 0
 			for {
 				round++
 				chromedp.Sleep(time.Second * time.Duration((2 + rand.Intn(3)))).Do(ctx)
 				content := ""
 				//chromedp.InnerHTML(`document.querySelector('div.feeds-tab-container')`, &content, chromedp.ByJSPath).Do(ctx)
 				chromedp.InnerHTML(`document.querySelector('html')`, &content, chromedp.ByJSPath).Do(ctx)
+
+				if strings.Contains(content, "接相关投诉该账户违反") || strings.Contains(content, "还没有发布任何内容") {
+					return nil
+				}
 
 				chromedp.ScrollIntoView("document.querySelector('#userPostedFeeds').lastElementChild", chromedp.ByJSPath).Do(ctx)
 
@@ -179,6 +204,11 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 				}
 				notesStr := utils.JsonToString(roundNotes)
 				if lastRoundNotes == notesStr {
+					sameCount++
+					log.Printf("SAME %v", sameCount)
+					if sameCount < 3 {
+						continue
+					}
 					log.Printf("loop %v break because notesStr is same.", round)
 					//log.Printf("1:%v", lastRoundNotes)
 					//log.Printf("2:%v", notesStr)
@@ -189,7 +219,21 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 				if uper.Name == "" {
 					uper = roundUper
 				}
-				notes = append(notes, roundNotes...)
+
+				for _, n := range roundNotes {
+					has := false
+					for _, old := range notes {
+						if old.NoteID == n.NoteID {
+							has = true
+							break
+						}
+					}
+					if has {
+						continue
+					}
+					notes = append(notes, n)
+				}
+
 				log.Printf("round %v get %v notes", round, len(roundNotes))
 
 			}
@@ -288,6 +332,7 @@ func ParseHtml(content string) (uper ParseUper, notes []ParseNote, err error) {
 		if div.HasClass("user-name") {
 			uper.Name = div.Text()
 		}
+
 		if div.HasClass("user-desc") {
 			uper.Desc = div.Text()
 		}
@@ -324,8 +369,16 @@ func ParseHtml(content string) (uper ParseUper, notes []ParseNote, err error) {
 
 	d.Find("img").Each(func(i int, img *goquery.Selection) {
 		if img.HasClass("user-image") {
-			uper.AvatarURL, _ = img.Attr("src")
-			uper.AvatarURL = utils.Extract(uper.AvatarURL, "", "?")
+			src, _ := img.Attr("src")
+			if src != "" {
+				src = utils.Extract(src, "", "?")
+				if src != "" {
+					uper.AvatarURL = src
+					//log.Printf("set user avatar url:%v", uper.AvatarURL)
+				}
+
+			}
+
 		}
 	})
 

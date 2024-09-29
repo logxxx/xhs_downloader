@@ -5,6 +5,7 @@ import (
 	"errors"
 	storm "github.com/asdine/storm/v3"
 	"github.com/asdine/storm/v3/q"
+	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/logutil"
 	"github.com/logxxx/xhs_downloader/model"
 	"log"
@@ -123,14 +124,14 @@ func (s *Storage) GetNotesByUper(uperUID string) (resp []model.Note) {
 	return
 }
 
-func (s *Storage) UperAddNote(uperUID string, noteID string) (failedReason string, err error) {
+func (s *Storage) UperAddNote(uperUID string, noteIDs ...string) (failedReason string, err error) {
 
 	if uperUID == "" {
 		err = errors.New("empty uperUID")
 		return
 	}
 
-	if noteID == "" {
+	if len(noteIDs) <= 0 {
 		err = errors.New("empty noteID")
 		return
 	}
@@ -140,12 +141,10 @@ func (s *Storage) UperAddNote(uperUID string, noteID string) (failedReason strin
 		err = errors.New("uper not found")
 		return
 	}
-	for _, w := range u.Notes {
-		if w == noteID {
-			failedReason = "noteID already exists"
-		}
-	}
-	u.Notes = append(u.Notes, noteID)
+
+	u.Notes = append(u.Notes, noteIDs...)
+	u.Notes = utils.RemoveEmpty(utils.RemoveDuplicate(u.Notes))
+
 	u.UpdateTime = time.Now()
 	err = s.db.From("uper").Update(&u)
 	if err != nil {
@@ -167,6 +166,7 @@ func (s *Storage) GetNoteTotalCount() int {
 func (s *Storage) InsertOrUpdateUper(input model.Uper) (string, error) {
 	u := s.GetUper(0, input.UID)
 	if u.ID > 0 {
+		input.ID = u.ID
 		input.UpdateTime = time.Now()
 		return "update", s.db.From("uper").Update(&input)
 	} else {
@@ -178,6 +178,16 @@ func (s *Storage) InsertOrUpdateUper(input model.Uper) (string, error) {
 }
 
 func (s *Storage) GetUper(id int64, uid string) (resp model.Uper) {
+
+	defer func() {
+		newNotes := utils.RemoveEmpty(utils.RemoveDuplicate(resp.Notes))
+		if len(newNotes) != len(resp.Notes) {
+			log.Printf("GetUper %v fix notes:%v=>%v", resp.Name, len(resp.Notes), len(newNotes))
+			resp.Notes = newNotes
+			s.db.From("uper").Update(&resp)
+		}
+	}()
+
 	if id > 0 {
 		err := s.db.From("uper").One("ID", id, &resp)
 		if err != nil {
