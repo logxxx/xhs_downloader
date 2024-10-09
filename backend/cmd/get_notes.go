@@ -9,10 +9,13 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
+	"github.com/logxxx/utils/netutil"
 	"github.com/logxxx/xhs_downloader/biz/storage"
+	"github.com/logxxx/xhs_downloader/config"
 	"github.com/logxxx/xhs_downloader/model"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"math/rand"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -40,7 +43,16 @@ func StartGetNotes() {
 
 	continueNoNoteCount := 0
 	downloadedCount := 0
+	reachLast := false
 	for i, u := range upers {
+
+		if u == "628357d7000000002102033f" {
+			reachLast = true
+		}
+
+		if !reachLast {
+			continue
+		}
 
 		if downloadedCount > 500 && i > 0 && i%10 == 0 {
 			log.Printf("sleep for i%%10==0")
@@ -87,6 +99,10 @@ func StartGetNotes() {
 			continueNoNoteCount = 0
 		}
 
+		allParseNotes := []string{}
+		for _, n := range parseNotes {
+			allParseNotes = append(allParseNotes, n.NoteID)
+		}
 		modelUper := model.Uper{
 			UID:              parseUper.UID,
 			Name:             parseUper.Name,
@@ -99,6 +115,7 @@ func StartGetNotes() {
 			ReceiveLikeCount: parseUper.ReceiveLikeCount,
 			CreateTime:       time.Now(),
 			UpdateTime:       time.Now(),
+			Notes:            allParseNotes,
 		}
 		result, err := storage.GetStorage().InsertOrUpdateUper(modelUper)
 		if err != nil {
@@ -108,18 +125,14 @@ func StartGetNotes() {
 		log.Printf("InsertOrUpdateUper succ:%+v result:%v", modelUper, result)
 		storage.GetStorage().SetUperScanned(u)
 
-		allParseNotes := []string{}
-		for _, n := range parseNotes {
-			allParseNotes = append(allParseNotes, n.NoteID)
-		}
-		failedReason, err := storage.GetStorage().UperAddNote(parseUper.UID, allParseNotes...)
-		if err != nil {
-			log.Printf("UperAddNote err:%v uid:%v noteid:%v", err, parseUper.UID, allParseNotes)
-		} else if failedReason != "" {
-			log.Printf("UperAddNote failed:%v uid:%v noteid:%v", failedReason, parseUper.UID, allParseNotes)
-		} else {
-			//log.Printf("UperAddNote succ. uid:%v noteid:%v", parseUper.UID, n.NoteID)
-		}
+		//failedReason, err := storage.GetStorage().UperAddNote(parseUper.UID, allParseNotes...)
+		//if err != nil {
+		//	log.Printf("UperAddNote err:%v uid:%v noteid:%v", err, parseUper.UID, allParseNotes)
+		//} else if failedReason != "" {
+		//	log.Printf("UperAddNote failed:%v uid:%v noteid:%v", failedReason, parseUper.UID, allParseNotes)
+		//} else {
+		//	//log.Printf("UperAddNote succ. uid:%v noteid:%v", parseUper.UID, n.NoteID)
+		//}
 
 		for _, n := range parseNotes {
 
@@ -137,9 +150,44 @@ func StartGetNotes() {
 				continue
 			}
 			_ = insertOrUpdate
-			//log.Printf("InsertOrUpdateNote succ: %+v insertOrUpdate:%v", dbNote, insertOrUpdate)
+			log.Printf("InsertOrUpdateNote succ: %+v(%v)", dbNote.Title, insertOrUpdate)
+
+			DownloadPoster(dbNote)
 		}
+
 	}
+}
+
+func DownloadPoster(n model.Note) {
+	//log.Printf("DownloadPoster title:%v", n.Title)
+
+	posterPath := filepath.Join(config.GetDownloadPath(), "note_poster", n.UperUID, fmt.Sprintf("%v.jpg", n.NoteID))
+
+	if utils.HasFile(posterPath) {
+		return
+	}
+
+	code, resp, err := netutil.HttpGetRaw(n.PosterURL)
+	if err != nil {
+		log.Printf("DownloadPoster netutil.HttpGetRaw err:%v resp:%v", err, resp)
+		return
+	}
+
+	if code != 200 || len(resp) <= 1024 {
+		log.Printf("DownloadPoster netutil.HttpGetRaw failed. code:%v resp:%v note:%+v", code, resp, n)
+		return
+	}
+
+	err = fileutil.WriteToFile(resp, posterPath)
+	if err != nil {
+		log.Printf("WriteToFile err:%v resp:%v", err, resp)
+		return
+	}
+	//log.Printf("DownloadPoster WriteToFile succ:%v len(resp):%v", posterPath, utils.GetShowSize(int64(len(resp))))
+
+	time.Sleep(1 * time.Second)
+
+	return
 }
 
 func getAllUpers() []string {
@@ -258,7 +306,7 @@ func getCtxWithCancel() (context.Context, func()) {
 	options = append(options, chromedp.Flag("ignore-certificate-errors", true))
 	options = append(options, chromedp.Flag("disable-web-security", true))
 	//Flag("disable-features", "site-per-process,Translate,BlinkGenPropertyTrees"),
-	options = append(options, chromedp.Flag("blink-settings", "imagesEnabled=false"))
+	//options = append(options, chromedp.Flag("blink-settings", "imagesEnabled=false"))
 	//options = append(options, chromedp.Headless)
 	actX, _ := chromedp.NewExecAllocator(context.Background(), options...)
 

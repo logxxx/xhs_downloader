@@ -1,16 +1,18 @@
 package main
 
 import (
+	"fmt"
+	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
+	"github.com/logxxx/utils/netutil"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/xhs"
 	"github.com/logxxx/xhs_downloader/config"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
+	"path/filepath"
+	"time"
 )
-
-type DownloadNoteResp struct {
-}
 
 func StartDownloadNote() {
 
@@ -73,4 +75,93 @@ func tryRefreshUperInfo(uid string) {
 		return
 	}
 	storage.GetStorage().InsertOrUpdateUper(uper)
+}
+
+func DownloadUperAvatar() {
+	failedCount := 0
+	storage.GetStorage().EachUper(func(u model.Uper, currCount, totalCount int) (e error) {
+
+		if u.AvatarURL == "" {
+			return
+		}
+
+		log.Printf("DownloadUperAvatar progress %v/%v name:%v", currCount, totalCount, u.Name)
+
+		path := filepath.Join(config.GetDownloadPath(), "uper_avatar", fmt.Sprintf("%v.jpg", u.UID))
+
+		if utils.HasFile(path) {
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+
+		code, resp, err := netutil.HttpGetRaw(u.AvatarURL)
+		if err != nil {
+			log.Printf("EachNote netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
+			return
+		}
+
+		if code != 200 || len(resp) <= 1024 {
+			failedCount++
+			log.Printf("EachUper netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
+			if failedCount > 3 {
+				panic(failedCount)
+			}
+			return
+		}
+		failedCount = 0
+
+		err = fileutil.WriteToFile(resp, path)
+		if err != nil {
+			log.Printf("WriteToFile err:%v resp:%v", err, resp)
+			return
+		}
+		log.Printf("EachNote WriteToFile succ:%v len(resp):%v", path, utils.GetShowSize(int64(len(resp))))
+
+		return
+
+	})
+}
+
+func DownloadNotePoster() {
+
+	failedCount := 0
+	storage.GetStorage().EachNote(func(n model.Note, currCount, totalCount int) (e error) {
+
+		log.Printf("DownloadNotePoster progress %v/%v title:%v", currCount, totalCount, n.Title)
+
+		posterPath := filepath.Join(config.GetDownloadPath(), "note_poster", n.UperUID, fmt.Sprintf("%v.jpg", n.NoteID))
+
+		if utils.HasFile(posterPath) {
+			return
+		}
+
+		code, resp, err := netutil.HttpGetRaw(n.PosterURL)
+		if err != nil {
+			log.Printf("EachNote netutil.HttpGetRaw err:%v resp:%v", err, resp)
+			return
+		}
+
+		if code != 200 || len(resp) <= 1024 {
+			failedCount++
+			log.Printf("EachNote netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
+			if failedCount > 3 {
+				panic(failedCount)
+			}
+			return
+		}
+		failedCount = 0
+
+		err = fileutil.WriteToFile(resp, posterPath)
+		if err != nil {
+			log.Printf("WriteToFile err:%v resp:%v", err, resp)
+			return
+		}
+		log.Printf("EachNote WriteToFile succ:%v len(resp):%v", posterPath, utils.GetShowSize(int64(len(resp))))
+
+		time.Sleep(1 * time.Second)
+
+		return
+
+	})
 }

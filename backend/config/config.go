@@ -27,3 +27,7 @@ func init() {
 func GetConfig() *GlobalConfig {
 	return _globalCfg
 }
+
+func GetDownloadPath() string {
+	return "chore/download"
+}

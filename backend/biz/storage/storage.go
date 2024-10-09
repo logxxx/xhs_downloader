@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	storm "github.com/asdine/storm/v3"
+	"github.com/asdine/storm/v3/index"
 	"github.com/asdine/storm/v3/q"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/logutil"
 	"github.com/logxxx/xhs_downloader/model"
-	"log"
+	log "github.com/sirupsen/logrus"
+	"math"
 	"reflect"
 	"strconv"
 	"sync"
@@ -159,7 +161,7 @@ func (s *Storage) GetUperTotalCount() int {
 }
 
 func (s *Storage) GetNoteTotalCount() int {
-	resp, _ := s.db.From("note").Count(&model.Uper{})
+	resp, _ := s.db.From("note").Count(&model.Note{})
 	return resp
 }
 
@@ -203,12 +205,13 @@ func (s *Storage) GetUper(id int64, uid string) (resp model.Uper) {
 }
 
 type GetUpersOpt struct {
+	Uid          string
 	FilterDelete bool
 	OnlyLike     bool
 	Tags         []string
 }
 
-func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Uper) {
+func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (resp []model.Uper, nextToken string) {
 	logger, _ := logutil.CtxLog(ctx, "GetUpers")
 	qs := []q.Matcher{}
 	if opt.OnlyLike {
@@ -246,7 +249,79 @@ func (s *Storage) GetAllUpers(ctx context.Context) (resp []model.Uper) {
 	return
 }
 
-func (s *Storage) GetNotes(ctx context.Context, opt GetUpersOpt, limit int, token string) (nextToken string, resp []model.Note) {
+func (s *Storage) EachUper(fn func(n model.Uper, currCount, totalCount int) (e error)) (err error) {
+
+	total := s.GetUperTotalCount()
+
+	currCount := 0
+	lastID := int64(0)
+	for {
+		upers := []model.Uper{}
+		options := []func(*index.Options){storm.Limit(100)}
+		err = s.db.From("uper").Range("ID", lastID+1, int64(math.MaxInt64), &upers, options...)
+		if err != nil {
+			return
+		}
+		if len(upers) <= 0 {
+			break
+		}
+
+		if upers[0].ID == lastID {
+			break
+		}
+
+		for _, n := range upers {
+			currCount++
+			err = fn(n, currCount, total)
+			if err != nil {
+				return err
+			}
+			lastID = n.ID
+		}
+
+	}
+
+	return
+
+}
+
+func (s *Storage) EachNote(fn func(n model.Note, currCount, totalCount int) (e error)) (err error) {
+
+	total := s.GetNoteTotalCount()
+
+	currCount := 0
+	lastID := int64(0)
+	for {
+		notes := []model.Note{}
+		options := []func(*index.Options){storm.Limit(100)}
+		err = s.db.From("note").Range("ID", lastID+1, int64(math.MaxInt64), &notes, options...)
+		if err != nil {
+			return
+		}
+		if len(notes) <= 0 {
+			break
+		}
+
+		if notes[0].ID == lastID {
+			break
+		}
+
+		for _, n := range notes {
+			currCount++
+			err = fn(n, currCount, total)
+			if err != nil {
+				return err
+			}
+			lastID = n.ID
+		}
+
+	}
+
+	return
+
+}
+
+func (s *Storage) GetNotes(ctx context.Context, opt GetUpersOpt, limit int, token string) (resp []model.Note, nextToken string) {
 	logger, _ := logutil.CtxLog(ctx, "GetNotes")
 	qs := []q.Matcher{}
 	if opt.OnlyLike {
@@ -254,6 +329,9 @@ func (s *Storage) GetNotes(ctx context.Context, opt GetUpersOpt, limit int, toke
 	}
 	if opt.FilterDelete {
 		qs = append(qs, q.Eq("IsDelete", false))
+	}
+	if opt.Uid != "" {
+		qs = append(qs, q.Eq("UperUID", opt.Uid))
 	}
 	if token != "" {
 		id, _ := strconv.Atoi(token)
