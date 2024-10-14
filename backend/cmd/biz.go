@@ -11,50 +11,88 @@ import (
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 func StartDownloadNote() {
 
-	allNotes := []string{}
-	fileutil.ReadByLine("chore/all_notes.txt", func(s string) error {
-		if s == "" {
-			return nil
-		}
-		allNotes = append(allNotes, s)
-		return nil
-	})
+	counter := map[string]int{}
 
-	if len(allNotes) <= 0 {
-		log.Printf("StartDownloadNote return: all notes is empty")
+	storage.GetStorage().EachNote(func(n model.Note, currCount, totalCount int) (e error) {
+
+		logger := log.WithField("func_name", "StartDownloadNote")
+
+		counter[n.UperUID]++
+		if counter[n.UperUID] > 20 {
+			//logger.Infof("download enough")
+			return
+		}
+
+		if !n.DownloadTime.IsZero() {
+			//logger.Infof("Downloaded")
+			return
+		}
+		if n.URL == "" {
+			logger.Infof("URL empty")
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+
+		logger.Infof("download start")
+
+		uper := storage.GetStorage().GetUper(0, n.UperUID)
+
+		logger = log.WithFields(log.Fields{
+			"currCount":  currCount,
+			"totalCount": totalCount,
+			"title":      n.Title,
+			"uper":       uper.Name,
+		})
+
+		if !strings.HasPrefix(n.URL, "https:") {
+			n.URL = "https://www.xiaohongshu.com" + n.URL
+		}
+
+		parseResp, err := ParseBlog(n.URL)
+		if err != nil {
+			log.Errorf("ParseBlog err:%v", err)
+			return
+		}
+		resp := Download(parseResp, "N:/xhs_downloader_output", true)
+		//resp := Download(parseResp, "chore/download/notes_by_uper", true)
+
+		isChanged := false
+		for _, m := range resp {
+			if m.DownloadPath == "" {
+				continue
+			}
+			isChanged = true
+			switch m.Type {
+			case "image":
+				n.Images = append(n.Images, m.DownloadPath)
+			case "video":
+				n.Video = m.DownloadPath
+			case "live":
+				n.Lives = append(n.Lives, m.DownloadPath)
+			}
+		}
+
+		if isChanged {
+			n.DownloadTime = time.Now()
+			err = storage.GetStorage().UpdateNote(n)
+			if err != nil {
+				log.Errorf("UpdateNote err:%v n:%+v", err, n)
+			}
+
+			newNote := storage.GetStorage().GetNote(n.NoteID)
+			log.Infof("after update, note:%+v", newNote)
+
+		}
+
 		return
-	}
-
-	for _, n := range allNotes {
-		if storage.GetStorage().IsNoteDownloaded(n) {
-			continue
-		}
-		noteInfo, err := xhs.GetNote(n)
-		if err != nil {
-			log.Errorf("xhs.GetNote err:%v input:%v", err, n)
-			continue
-		}
-
-		tryRefreshUperInfo(noteInfo.UperUID)
-
-		noteInfo, err = DownloadNote(noteInfo, config.GetConfig().DownloadPath)
-		if err != nil {
-			log.Errorf("xhs.GetNote err:%v noteInfo:%+v", err, noteInfo)
-			continue
-		}
-
-		_, err = storage.GetStorage().InsertOrUpdateNote(noteInfo)
-		if err != nil {
-			log.Errorf("InsertOrUpdateNote err:%v noteInfo:%+v", err, noteInfo)
-			continue
-		}
-
-	}
+	})
 
 }
 
@@ -77,46 +115,46 @@ func tryRefreshUperInfo(uid string) {
 	storage.GetStorage().InsertOrUpdateUper(uper)
 }
 
-func DownloadUperAvatar() {
-	failedCount := 0
+func DownloadUperAvatar(u model.Uper, to string) (err error) {
+	if u.AvatarURL == "" {
+		return
+	}
+
+	path := filepath.Join(to, "uper_avatar", fmt.Sprintf("%v.jpg", u.UID))
+
+	if utils.HasFile(path) {
+		return
+	}
+
+	time.Sleep(1 * time.Second)
+
+	code, resp, err := netutil.HttpGetRaw(u.AvatarURL)
+	if err != nil {
+		log.Printf("EachNote netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
+		return
+	}
+
+	if code != 200 || len(resp) <= 1024 {
+		log.Printf("EachUper netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
+		return fmt.Errorf("invalid status:%v", code)
+	}
+
+	err = fileutil.WriteToFile(resp, path)
+	if err != nil {
+		log.Printf("WriteToFile err:%v resp:%v", err, resp)
+		return
+	}
+
+	return
+}
+
+func CrontabDownloadUperAvatar() {
+
 	storage.GetStorage().EachUper(func(u model.Uper, currCount, totalCount int) (e error) {
 
-		if u.AvatarURL == "" {
-			return
-		}
+		log.Printf("CrontabDownloadUperAvatar progress %v/%v name:%v", currCount, totalCount, u.Name)
 
-		log.Printf("DownloadUperAvatar progress %v/%v name:%v", currCount, totalCount, u.Name)
-
-		path := filepath.Join(config.GetDownloadPath(), "uper_avatar", fmt.Sprintf("%v.jpg", u.UID))
-
-		if utils.HasFile(path) {
-			return
-		}
-
-		time.Sleep(1 * time.Second)
-
-		code, resp, err := netutil.HttpGetRaw(u.AvatarURL)
-		if err != nil {
-			log.Printf("EachNote netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
-			return
-		}
-
-		if code != 200 || len(resp) <= 1024 {
-			failedCount++
-			log.Printf("EachUper netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
-			if failedCount > 3 {
-				panic(failedCount)
-			}
-			return
-		}
-		failedCount = 0
-
-		err = fileutil.WriteToFile(resp, path)
-		if err != nil {
-			log.Printf("WriteToFile err:%v resp:%v", err, resp)
-			return
-		}
-		log.Printf("EachNote WriteToFile succ:%v len(resp):%v", path, utils.GetShowSize(int64(len(resp))))
+		DownloadUperAvatar(u, config.GetDownloadPath())
 
 		return
 

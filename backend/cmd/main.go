@@ -7,13 +7,14 @@ import (
 )
 
 func main() {
-	runutil.GoRunSafe(StartGetNotes)
+	//runutil.GoRunSafe(StartGetNotes)
+	runutil.GoRunSafe(StartDownloadNote)
 
-	//runutil.GoRunSafe(DownloadUperAvatar)
+	//runutil.GoRunSafe(CrontabDownloadUperAvatar)
 
 	//runutil.GoRunSafe(DownloadNotePoster)
 
-	runutil.GoRunSafe(StartDownloadNote)
+	//runutil.GoRunSafe(StartDownloadNote)
 
 	runutil.GoRunSafe(web.InitWeb)
 

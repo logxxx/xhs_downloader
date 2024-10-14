@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/reqresp"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/config"
 	"github.com/logxxx/xhs_downloader/model"
+	"github.com/logxxx/xhs_downloader/proto"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -25,6 +28,8 @@ type GetNotesResp struct {
 func InitWeb() {
 
 	g := gin.Default()
+
+	g.Use(reqresp.Cors())
 
 	g.GET("/now", func(c *gin.Context) {
 		c.String(200, time.Now().Format("2006-01-02 15:04:05"))
@@ -122,7 +127,92 @@ func InitWeb() {
 		c.JSON(200, resp)
 	})
 
+	g.GET("/file", func(c *gin.Context) {
+
+		id := c.Query("id")
+		//log.Infof("get file:%v", id)
+		isPreview := c.Query("is_preview")
+		_ = isPreview
+
+		if id == "" {
+			reqresp.MakeErrMsg(c, errors.New("empty id"))
+			return
+		}
+
+		filePath := utils.B64To(id)
+
+		c.File(filePath)
+
+	})
+
+	g.GET("/uper_notes", func(c *gin.Context) {
+		uid := c.Query("uid")
+		if uid == "" {
+			reqresp.MakeErrMsg(c, errors.New("empty uid"))
+			return
+		}
+
+		dbUper := storage.GetStorage().GetUper(0, uid)
+		if dbUper.ID <= 0 {
+			reqresp.MakeErrMsg(c, errors.New("uper not found"))
+			return
+		}
+
+		resp := &proto.ApiGetUperNotesResp{}
+
+		for i, n := range dbUper.Notes {
+
+			if i > 10 { //TODO: page
+				break
+			}
+
+			dbNote := storage.GetStorage().GetNote(n)
+			if dbNote.NoteID == "" {
+				continue
+			}
+			note := proto.ApiUperNote{
+				NoteID:  dbNote.NoteID,
+				Poster:  utils.B64(GetNotePosterPath(dbNote.UperUID, dbNote.NoteID)),
+				Title:   dbNote.Title,
+				Content: dbNote.Content,
+				Video:   "",  //todo
+				Images:  nil, //todo
+				Lives:   nil, //todo
+			}
+			resp.Data = append(resp.Data, note)
+		}
+
+		reqresp.MakeResp(c, resp)
+
+	})
+
 	g.GET("/upers", func(c *gin.Context) {
+		token := c.Query("token")
+		limitStr := c.Query("limit")
+		limit, _ := strconv.Atoi(limitStr)
+		if limit <= 0 {
+			limit = 10
+		}
+		dbUpers, nextToken := storage.GetStorage().GetUpers(c, storage.GetUpersOpt{}, limit, token)
+		resp := &proto.ApiGetUperInfoResp{
+			Token: nextToken,
+		}
+
+		for _, db := range dbUpers {
+			uper := proto.ApiUperInfo{
+				UID:    db.UID,
+				Name:   db.Name,
+				Desc:   db.Desc,
+				Tags:   db.Tags,
+				Avatar: utils.B64(GetUperAvatarPath(db.UID)),
+			}
+			resp.Data = append(resp.Data, uper)
+		}
+
+		c.JSON(200, resp)
+	})
+
+	g.GET("/debug/upers", func(c *gin.Context) {
 		token := c.Query("token")
 		limitStr := c.Query("limit")
 		limit, _ := strconv.Atoi(limitStr)
@@ -143,4 +233,12 @@ func InitWeb() {
 	}
 
 	g.Run(fmt.Sprintf(":%v", port))
+}
+
+func GetUperAvatarPath(uid string) string {
+	return filepath.Join(config.GetDownloadPath(), "uper_avatar", fmt.Sprintf("%v.jpg", uid))
+}
+
+func GetNotePosterPath(uid, noteID string) string {
+	return filepath.Join(config.GetDownloadPath(), "note_poster", uid, fmt.Sprintf("%v.jpg", noteID))
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/cdproto/network"
@@ -46,7 +47,7 @@ func StartGetNotes() {
 	reachLast := false
 	for i, u := range upers {
 
-		if u == "628357d7000000002102033f" {
+		if u == "65fb9db5000000000b00ec0b" {
 			reachLast = true
 		}
 
@@ -54,7 +55,7 @@ func StartGetNotes() {
 			continue
 		}
 
-		if downloadedCount > 500 && i > 0 && i%10 == 0 {
+		if downloadedCount > 500 && i > 0 && i%50 == 0 {
 			log.Printf("sleep for i%%10==0")
 			time.Sleep(1 * time.Minute)
 		}
@@ -67,6 +68,8 @@ func StartGetNotes() {
 		log.Printf("deal parseUper %v/%v %v", i+1, len(upers), u)
 
 		uper := storage.GetStorage().GetUper(0, u)
+		log.Printf("IS_NEW:%v NOTES:%v CTIME:%v", uper.ID == 0, len(uper.Notes), uper.CreateTime.Format("01/02 15:04:05"))
+
 		if len(uper.Notes) != 0 && len(uper.Notes) != 14 {
 			continue
 		}
@@ -76,6 +79,9 @@ func StartGetNotes() {
 		parseUper, parseNotes, err := getNotes(u, cookie)
 		if err != nil {
 			log.Printf("get parseNotes err:%v uid:%v", err, u)
+			if strings.Contains(err.Error(), "change account") {
+				changeCookie()
+			}
 			continue
 		}
 		log.Printf("parseUper [%v_%v] get [%v] parseNotes", parseUper.UID, parseUper.Name, len(parseNotes))
@@ -134,7 +140,7 @@ func StartGetNotes() {
 		//	//log.Printf("UperAddNote succ. uid:%v noteid:%v", parseUper.UID, n.NoteID)
 		//}
 
-		for _, n := range parseNotes {
+		for i, n := range parseNotes {
 
 			dbNote := model.Note{
 				NoteID:    n.NoteID,
@@ -150,10 +156,12 @@ func StartGetNotes() {
 				continue
 			}
 			_ = insertOrUpdate
-			log.Printf("InsertOrUpdateNote succ: %+v(%v)", dbNote.Title, insertOrUpdate)
+			log.Printf("InsertOrUpdateNote succ(%v/%v): %+v(%v)", i+1, len(parseNotes), dbNote.Title, insertOrUpdate)
 
 			DownloadPoster(dbNote)
 		}
+
+		DownloadUperAvatar(modelUper, config.GetDownloadPath())
 
 	}
 }
@@ -185,7 +193,7 @@ func DownloadPoster(n model.Note) {
 	}
 	//log.Printf("DownloadPoster WriteToFile succ:%v len(resp):%v", posterPath, utils.GetShowSize(int64(len(resp))))
 
-	time.Sleep(1 * time.Second)
+	//time.Sleep(1 * time.Second)
 
 	return
 }
@@ -221,7 +229,7 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 
 	ctx = context.WithValue(ctx, "XHS_COOKIE", cookie)
 
-	chromedp.Run(ctx,
+	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(setCookie),
 		chromedp.Sleep(5*time.Second),
 		chromedp.Navigate(uperURL),
@@ -243,6 +251,10 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 					return nil
 				}
 
+				if strings.Contains(content, "访问频次异常") {
+					return errors.New("need change account")
+				}
+
 				chromedp.ScrollIntoView("document.querySelector('#userPostedFeeds').lastElementChild", chromedp.ByJSPath).Do(ctx)
 
 				roundUper, roundNotes, err := ParseHtml(content)
@@ -254,6 +266,9 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 				if lastRoundNotes == notesStr {
 					sameCount++
 					log.Printf("SAME %v", sameCount)
+					if len(lastRoundNotes) != 14 {
+						break
+					}
 					if sameCount < 3 {
 						continue
 					}

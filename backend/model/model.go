@@ -29,8 +29,10 @@ type Note struct {
 	UperUID        string `storm:"index"`
 	Title          string
 	Content        string
+	DownloadTime   time.Time `storm:"index"`
 	Video          string
 	Images         []string
+	Lives          []string
 	LikeCount      int
 	IsLike         bool
 	IsDelete       bool
