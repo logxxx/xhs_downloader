@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/chromedp/chromedp"
 	"github.com/logxxx/utils"
-	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/netutil"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 type Media struct {
 	Type         string `json:"type,omitempty"`
 	URL          string `json:"url,omitempty"`
+	BackupURL    string `json:"backup_url,omitempty"`
 	DownloadPath string `json:"download_path,omitempty"`
 }
 
@@ -31,23 +33,38 @@ type ParseBlogResp struct {
 	NoteID  string   `json:"note_id,omitempty"`
 }
 
-func ParseBlog(reqURL string) (resp ParseBlogResp, err error) {
+var (
+	visitorCookie = "acw_tc=58aa51fe6ea7617a43226c066f7f9d54e3597c9459e0c51593f39e372743c909; abRequestId=0b8ed859-19eb-56bc-8f58-ca4fdac0b477; webBuild=4.38.0; a1=19292cbf949hp1s9hit7ccmvdas7mm0ohbjy94rds50000202906; webId=b0e963478d63846917a8448ad5c06b81; xsecappid=ranchi; gid=yjJjJSSJdYxdyjJjJSDijD4F4jxUyMjx39WSVfMS6hf0Mv28W668lj888J8Jj8K8JJjD8DJJ; websectiga=16f444b9ff5e3d7e258b5f7674489196303a0b160e16647c6c2b4dcb609f4134; sec_poison_id=3d12a667-ab48-46a8-9cdd-1bbe54f02984"
+)
 
-	resp.BlogURL = reqURL
-	resp.Time = time.Now().Format("20060102 15:04:05")
-
-	httpReq := getHttpReq(reqURL, "", "")
+func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
+	httpReq := getHttpReq(reqURL, cookie, "")
 	code, httpResp, err := netutil.HttpDo(httpReq)
 	if err != nil {
+		log.Errorf("HttpDo err:%v", err)
 		return
 	}
 	if code != 200 {
+		log.Errorf("HttpDo invalid code:%v", code)
 		err = fmt.Errorf("invalid code:%v", code)
 		return
 	}
 
+	return httpResp
+}
+
+func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
+
+	//log.Printf("Start PraseBolg:%v", reqURL)
+
+	resp.BlogURL = reqURL
+	resp.Time = time.Now().Format("20060102 15:04:05")
+
+	//httpResp := GetHtmlByChromedp(reqURL, "")
+	httpResp := GetHtmlByApi(reqURL, cookie)
+
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live_%v.html", time.Now().Format("20060102_150405")))
-	fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
+	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
 
 	content := utils.Extract(string(httpResp), "window.__INITIAL_STATE__=", "</script></body></html>")
 	if content == "" {
@@ -65,7 +82,7 @@ func ParseBlog(reqURL string) (resp ParseBlogResp, err error) {
 		log.Infof("ParseBlog Unmarshal err:%v data:%v", err, content)
 		return
 	}
-	//log.Infof("NoteResp:%+v", noteResp)
+	//log.Infof("NoteDetailMap:%+v", noteResp.Note.NoteDetailMap)
 
 	for _, noteDetail := range noteResp.Note.NoteDetailMap {
 		//log.Infof(">>>>>>>>>>> note:%+v", noteDetail.Note)
@@ -96,7 +113,7 @@ func ParseBlog(reqURL string) (resp ParseBlogResp, err error) {
 			for _, elem := range imgInfo.InfoList {
 				//log.Infof("elem%v:%+v", i+1, elem)
 				if (elem.ImageScene == "CRD_WM_JPG" || elem.ImageScene == "WB_DFT") && elem.URL != "" {
-					log.Infof("find img:%v", elem.URL)
+					//log.Infof("find img:%v", elem.URL)
 					resp.Medias = append(resp.Medias, &Media{
 						Type: "image",
 						URL:  elem.URL,
@@ -112,6 +129,7 @@ func ParseBlog(reqURL string) (resp ParseBlogResp, err error) {
 					continue
 				}
 				id := utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wlteh_webp_3")
+				m.BackupURL = m.URL
 				m.URL = fmt.Sprintf("https://ci.xiaohongshu.com/%v?imageView2/2/w/format/png", id)
 			}
 		}
@@ -418,4 +436,30 @@ type NoteResp struct {
 		Rate           int    `json:"rate"`
 		NoteFromSource string `json:"noteFromSource"`
 	} `json:"note"`
+}
+
+func GetHtmlByChromedp(reqURL, cookie string) (resp []byte) {
+	ctx, cancel := getCtxWithCancel()
+	go func() {
+		time.Sleep(300 * time.Second)
+		cancel()
+	}()
+	defer cancel()
+
+	ctx = context.WithValue(ctx, "XHS_COOKIE", cookie)
+
+	content := ""
+	chromedp.Run(ctx,
+		chromedp.ActionFunc(setCookie),
+		chromedp.Navigate(reqURL),
+		chromedp.Sleep(10*time.Second),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+
+			//chromedp.InnerHTML(`document.querySelector('div.feeds-tab-container')`, &content, chromedp.ByJSPath).Do(ctx)
+			chromedp.InnerHTML(`document.querySelector('html')`, &content, chromedp.ByJSPath).Do(ctx)
+
+			return nil
+		}),
+	)
+	return []byte(content)
 }

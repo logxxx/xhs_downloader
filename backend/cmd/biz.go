@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/asdine/storm/v3/q"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/netutil"
+	"github.com/logxxx/xhs_downloader/biz/black"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/xhs"
 	"github.com/logxxx/xhs_downloader/config"
@@ -15,89 +17,270 @@ import (
 	"time"
 )
 
-func StartDownloadNote() {
+func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
+	logger := log.WithField("func_name", "StartDownloadNote")
 
-	counter := map[string]int{}
+	//counter[n.UperUID]++
+	//if counter[n.UperUID] > 20 {
+	//	//logger.Infof("download enough")
+	//	return
+	//}
 
-	storage.GetStorage().EachNote(func(n model.Note, currCount, totalCount int) (e error) {
+	if !strings.HasPrefix(n.URL, "https:") {
+		n.URL = "https://www.xiaohongshu.com" + n.URL
+	}
 
-		logger := log.WithField("func_name", "StartDownloadNote")
+	if !n.DownloadTime.IsZero() {
+		//logger.Infof("Downloaded")
 
-		counter[n.UperUID]++
-		if counter[n.UperUID] > 20 {
-			//logger.Infof("download enough")
-			return
+		if n.FileSize <= 0 {
+			totalSize := int64(0)
+			for _, elem := range n.Images {
+				totalSize += utils.GetFileSize(elem)
+			}
+			for _, elem := range n.Lives {
+				totalSize += utils.GetFileSize(elem)
+			}
+
+			if n.Video != "" {
+				totalSize += utils.GetFileSize(n.Video)
+			}
+			n.FileSize = totalSize
+
+			if n.FileSize > 0 {
+				log.Infof("update file size:%v", utils.GetShowSize(n.FileSize))
+				storage.GetStorage().InsertOrUpdateNote(n)
+			}
+
 		}
 
-		if !n.DownloadTime.IsZero() {
-			//logger.Infof("Downloaded")
-			return
-		}
-		if n.URL == "" {
-			logger.Infof("URL empty")
-			return
+		if n.FileSizeReverse <= 0 && n.FileSize > 0 {
+			n.FileSizeReverse = 1024*1024*1024 - n.FileSize
+			storage.GetStorage().InsertOrUpdateNote(n)
 		}
 
-		time.Sleep(1 * time.Second)
+		result = "!n.DownloadTime.IsZero()"
+		return
+	}
 
-		logger.Infof("download start")
+	if n.DownloadNothing {
+		result = "n.DownloadNothing"
+		return
+	}
 
-		uper := storage.GetStorage().GetUper(0, n.UperUID)
+	if n.URL == "" {
+		result = "n.URL empty"
+		return
+	}
 
-		logger = log.WithFields(log.Fields{
-			"currCount":  currCount,
-			"totalCount": totalCount,
-			"title":      n.Title,
-			"uper":       uper.Name,
-		})
+	reason := black.HitBlack(n.Title, n.URL)
+	if reason != "" {
+		logger.Infof("title HIT BLACK:%v", reason)
+		result = "title HIT BLACK"
+		return
+	}
 
-		if !strings.HasPrefix(n.URL, "https:") {
-			n.URL = "https://www.xiaohongshu.com" + n.URL
+	reason = black.HitBlack(n.Content, n.URL)
+	if reason != "" {
+		logger.Infof("content HIT BLACK:%v", reason)
+		result = "content HIT BLACK"
+		return
+	}
+
+	logger = log.WithFields(log.Fields{
+		"title":    n.Title,
+		"uper_uid": n.UperUID,
+	})
+
+	parseResp, err := ParseBlog(n.URL, "")
+	if err != nil {
+		log.Errorf("ParseBlog err:%v", err)
+		return
+	}
+
+	if len(parseResp.Medias) == 0 {
+		log.Infof("*** find Medias not exists, check AGAIN!!!")
+		elems := strings.Split(n.URL, "/")
+		reqURL := "https://www.xiaohongshu.com/explore/" + elems[len(elems)-1]
+		log.Infof("reqURL:%v", reqURL)
+		retryCookie := ""
+		if canChangeCookieWhenRetry {
+			retryCookie = cookie
+		}
+		parseResp, _ = ParseBlog(reqURL, retryCookie)
+	}
+
+	if len(parseResp.Medias) == 0 {
+		log.Infof("*** NO MEDIA ***")
+		n.DownloadTime = time.Now()
+		n.DownloadNothing = true
+		storage.GetStorage().UpdateNote(n)
+		return
+	}
+
+	log.Infof("start download: %v", n.URL)
+	resp := Download(parseResp, "N:/xhs_downloader_output", true)
+	//resp := Download(parseResp, "chore/download/notes_by_uper", true)
+
+	isChanged := false
+	for _, m := range resp {
+		if m.DownloadPath == "" {
+			continue
+		}
+		isChanged = true
+		switch m.Type {
+		case "image":
+			n.Images = append(n.Images, m.DownloadPath)
+		case "video":
+			n.Video = m.DownloadPath
+		case "live":
+			n.Lives = append(n.Lives, m.DownloadPath)
+		}
+	}
+
+	if isChanged {
+		n.DownloadTime = time.Now()
+
+		if n.FileSize <= 0 {
+			totalSize := int64(0)
+			for _, elem := range n.Images {
+				totalSize += utils.GetFileSize(elem)
+			}
+			for _, elem := range n.Lives {
+				totalSize += utils.GetFileSize(elem)
+			}
+
+			if n.Video != "" {
+				totalSize += utils.GetFileSize(n.Video)
+			}
+			log.Infof("update file size:%v", utils.GetShowSize(totalSize))
+			n.FileSize = totalSize
 		}
 
-		parseResp, err := ParseBlog(n.URL)
+		_, err = storage.GetStorage().InsertOrUpdateNote(n)
 		if err != nil {
-			log.Errorf("ParseBlog err:%v", err)
+			log.Errorf("InsertOrUpdateNote err:%v n:%+v", err, n)
+		}
+
+		newNote := storage.GetStorage().GetNote(n.NoteID)
+		log.Infof("after update, note:%+v", newNote)
+
+	}
+
+	return
+}
+
+func StartFillFileSize() {
+
+	updated := 0
+	updatedTotalSize := int64(0)
+
+	log.Printf("StartFillFileSize start")
+	round := 0
+
+	limit := 500
+	lastID := int64(0)
+	for {
+
+		round++
+
+		log.Printf("scan %v updated:%v totalSize:%v", round, updated, utils.GetShowSize(updatedTotalSize))
+
+		ms := []q.Matcher{
+			q.Eq("IsDelete", false),
+			q.Not(q.Eq("Video", "")),
+			q.Gt("ID", lastID),
+		}
+		resps := []model.Note{}
+		err := storage.GetStorage().DB().From("note").Select(ms...).Limit(limit).Find(&resps)
+		if err != nil {
+			log.Errorf("Find err:%v", err)
 			return
 		}
-		resp := Download(parseResp, "N:/xhs_downloader_output", true)
-		//resp := Download(parseResp, "chore/download/notes_by_uper", true)
+		//log.Printf("round%v get %v resps", round, len(resps))
 
-		isChanged := false
-		for _, m := range resp {
-			if m.DownloadPath == "" {
+		if len(resps) > 0 {
+			lastID = resps[len(resps)-1].ID
+		}
+
+		for i, elem := range resps {
+			_ = i
+
+			if elem.FileSize > 0 {
+				//log.Printf("skip%v:%+v", i+1, utils.GetShowSize(elem.FileSize))
 				continue
 			}
-			isChanged = true
-			switch m.Type {
-			case "image":
-				n.Images = append(n.Images, m.DownloadPath)
-			case "video":
-				n.Video = m.DownloadPath
-			case "live":
-				n.Lives = append(n.Lives, m.DownloadPath)
+
+			//	log.Printf("deal%v:%+v", i+1, elem)
+
+			totalSize := int64(0)
+			for _, elem := range elem.Images {
+				totalSize += utils.GetFileSize(elem)
 			}
+			for _, elem := range elem.Lives {
+				totalSize += utils.GetFileSize(elem)
+			}
+
+			if elem.Video != "" {
+				totalSize += utils.GetFileSize(elem.Video)
+			}
+
+			elem.FileSize = totalSize
+
+			if elem.FileSize <= 0 {
+				continue
+			}
+
+			elem.FileSizeReverse = 1024*1024*1024 - elem.FileSize
+
+			//log.Infof("start update note:%v size:%v", elem.Title, utils.GetShowSize(elem.FileSize))
+			err = storage.GetStorage().UpdateNote(elem)
+			if err != nil {
+				log.Errorf("InsertOrUpdateNote err:%v req:%+v", err, elem)
+				return
+			}
+
+			//log.Infof("update note:%v size:%v", elem.Title, utils.GetShowSize(elem.FileSize))
+
+			updated++
+			updatedTotalSize += elem.FileSize
+
 		}
 
-		if isChanged {
-			n.DownloadTime = time.Now()
-			err = storage.GetStorage().UpdateNote(n)
-			if err != nil {
-				log.Errorf("UpdateNote err:%v n:%+v", err, n)
-			}
+		if len(resps) < limit {
+			return
+		}
 
-			newNote := storage.GetStorage().GetNote(n.NoteID)
-			log.Infof("after update, note:%+v", newNote)
+	}
 
+}
+
+func StartDownloadNote() {
+
+	//counter := map[string]int{}
+
+	lastIDKey := fmt.Sprintf("StartDownloadNote-lastID")
+	lastID := 0
+	storage.GetStorage().DB().Get("common", lastIDKey, &lastID)
+	log.Printf("StartDownloadNote-lastID:%v", lastID)
+
+	storage.GetStorage().EachNoteBySelect(lastID, func(n model.Note, currCount, totalCount int) (e error) {
+
+		if n.IsDelete {
+			log.Printf("StartDownloadNote-Note is Deleted:%v", n.Title)
+			return
+		}
+
+		result := DownloadNote(n, false)
+		log.Infof("StartDownloadNote EachNoteBySelect(%v/%v):%+v result:%v", currCount, totalCount, n.Title, result)
+
+		if currCount%10 == 0 {
+			storage.GetStorage().DB().Set("common", lastIDKey, currCount)
 		}
 
 		return
 	})
 
-}
-
-func DownloadNote(n model.Note, downloadPath string) (resp model.Note, err error) {
-	return
 }
 
 func tryRefreshUperInfo(uid string) {
@@ -130,7 +313,7 @@ func DownloadUperAvatar(u model.Uper, to string) (err error) {
 
 	code, resp, err := netutil.HttpGetRaw(u.AvatarURL)
 	if err != nil {
-		log.Printf("EachNote netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
+		log.Printf("EachNoteByRange netutil.HttpGetRaw err:%v url:%v resp:%v", err, u.AvatarURL, resp)
 		return
 	}
 
@@ -161,10 +344,11 @@ func CrontabDownloadUperAvatar() {
 	})
 }
 
+/*
 func DownloadNotePoster() {
 
 	failedCount := 0
-	storage.GetStorage().EachNote(func(n model.Note, currCount, totalCount int) (e error) {
+	storage.GetStorage().EachNoteByRange(0, func(n model.Note, currCount, totalCount int) (e error) {
 
 		log.Printf("DownloadNotePoster progress %v/%v title:%v", currCount, totalCount, n.Title)
 
@@ -176,13 +360,13 @@ func DownloadNotePoster() {
 
 		code, resp, err := netutil.HttpGetRaw(n.PosterURL)
 		if err != nil {
-			log.Printf("EachNote netutil.HttpGetRaw err:%v resp:%v", err, resp)
+			log.Printf("EachNoteByRange netutil.HttpGetRaw err:%v resp:%v", err, resp)
 			return
 		}
 
 		if code != 200 || len(resp) <= 1024 {
 			failedCount++
-			log.Printf("EachNote netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
+			log.Printf("EachNoteByRange netutil.HttpGetRaw failed. code:%v resp:%v", code, resp)
 			if failedCount > 3 {
 				panic(failedCount)
 			}
@@ -195,7 +379,7 @@ func DownloadNotePoster() {
 			log.Printf("WriteToFile err:%v resp:%v", err, resp)
 			return
 		}
-		log.Printf("EachNote WriteToFile succ:%v len(resp):%v", posterPath, utils.GetShowSize(int64(len(resp))))
+		log.Printf("EachNoteByRange WriteToFile succ:%v len(resp):%v", posterPath, utils.GetShowSize(int64(len(resp))))
 
 		time.Sleep(1 * time.Second)
 
@@ -203,3 +387,5 @@ func DownloadNotePoster() {
 
 	})
 }
+
+*/

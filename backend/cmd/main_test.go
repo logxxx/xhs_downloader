@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/logxxx/utils"
+	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"os"
 	"strings"
 	"testing"
@@ -44,22 +45,22 @@ func TestExtract(t *testing.T) {
 	t.Logf("content:%v", content)
 }
 
-func Extract(content string, begin string, end string) (resp string) {
-	beginIdx := strings.Index(content, begin)
-	if beginIdx < 0 {
-		return ""
+func TestParseBlog2(t *testing.T) {
+	reqURL := "https://www.xiaohongshu.com/explore/66c6da5e000000001d03a049?xsec_token=AB7zvzDsrdgf3TEetNvxrhUxVQsn3jX43PdsUQKtHZpT4=&xsec_source=pc_user"
+	reqURL = "https://www.xiaohongshu.com/discovery/item/66c6da5e000000001d03a049?xsec_token=AB7zvzDsrdgf3TEetNvxrhUxVQsn3jX43PdsUQKtHZpT4=&xsec_source=pc_user"
+	//reqURL = "https://www.xiaohongshu.com/discovery/item/66c6da5e000000001d03a049"
+	reqURL = "https://www.xiaohongshu.com/explore/670e46760000000021002695?xsec_token=ABSwOPnSQyQzPoes8C28EX4-qxBEI8wTA5xQW3U24n0fQ=&xsec_source=pc_feed&source=404"
+	reqURL = "https://www.xiaohongshu.com/explore/671092d5000000002401a6dc?xsec_token=AB3S2QG8dzwwSE7BDEXwRpnf8P_QE6AVkXyFwRJE9XRic=&xsec_source=pc_user"
+	resp, err := ParseBlog(reqURL, rawCookie)
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Logf("resp:%+v", resp)
 
-	if end == "" {
-		return content[beginIdx+len(begin):]
-	}
+	Download(resp, "", false)
+}
 
-	endIdx := strings.Index(content[beginIdx+len(begin):], end)
-	if endIdx < 0 {
-		return ""
-	}
-
-	resp = content[beginIdx+len(begin) : beginIdx+len(begin)+endIdx]
-
-	return resp
+func TestGeneVideoShot(t *testing.T) {
+	thumb.GeneVideoShot("N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4",
+		"N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4.thumb.mp4")
 }

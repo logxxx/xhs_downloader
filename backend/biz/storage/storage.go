@@ -11,7 +11,9 @@ import (
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"math"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -45,11 +47,17 @@ func GetStorage() *Storage {
 
 }
 
+func (s *Storage) DB() *storm.DB {
+	return s.db
+}
+
 func (s *Storage) initDB() {
+	log.Printf("initDB start")
 	db, err := storm.Open("chore/core.db")
 	if err != nil {
 		panic(err)
 	}
+	log.Printf("initDB succ")
 	s.db = db
 }
 
@@ -94,6 +102,16 @@ func (s *Storage) UpdateNote(w model.Note) error {
 }
 
 func (s *Storage) InsertOrUpdateNote(w model.Note) (insertOrUpdate string, err error) {
+
+	if w.ID > 0 {
+		err = s.db.From("note").Update(&w)
+		if err != nil {
+			log.Printf("InsertOrUpdateNote Update err:%v w:%+v", err, w)
+		} else {
+			insertOrUpdate = "update"
+		}
+		return
+	}
 
 	n := s.GetNote(w.NoteID)
 
@@ -209,6 +227,7 @@ type GetUpersOpt struct {
 	FilterDelete bool
 	OnlyLike     bool
 	Tags         []string
+	WithNoTag    bool
 }
 
 func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, token string) (resp []model.Uper, nextToken string) {
@@ -222,6 +241,9 @@ func (s *Storage) GetUpers(ctx context.Context, opt GetUpersOpt, limit int, toke
 	}
 	if len(opt.Tags) > 0 {
 		qs = append(qs, q.In("Tags", opt.Tags))
+	}
+	if opt.WithNoTag {
+		qs = append(qs, q.Eq("Tags", nil))
 	}
 	if token != "" {
 		id, _ := strconv.Atoi(token)
@@ -285,15 +307,192 @@ func (s *Storage) EachUper(fn func(n model.Uper, currCount, totalCount int) (e e
 
 }
 
-func (s *Storage) EachNote(fn func(n model.Note, currCount, totalCount int) (e error)) (err error) {
+func (s *Storage) EachNoteBySelect(skip int, fn func(n model.Note, currCount, totalCount int) (e error)) (err error) {
+
+	total := s.GetNoteTotalCount()
+
+	lastID := int64(0)
+	currCount := skip
+	round := 0
+	for {
+		notes := []model.Note{}
+		ms := []q.Matcher{}
+		if lastID > 0 {
+			ms = append(ms, q.Lt("ID", lastID))
+		}
+		round++
+
+		db := s.db.From("note").Select(ms...).OrderBy("ID").Limit(100).Reverse()
+		if round == 1 && skip > 0 {
+			db = db.Skip(skip)
+		}
+		err := db.Find(&notes)
+		if err != nil {
+			return err
+		}
+		if len(notes) <= 0 {
+			break
+		}
+		lastID = notes[len(notes)-1].ID
+		for _, n := range notes {
+			currCount++
+			fn(n, currCount, total)
+		}
+	}
+	return nil
+}
+
+var videoCache = []model.Note{}
+
+func tryGetVideoFromCache() (resp model.Note) {
+	if len(videoCache) <= 1 {
+		return
+	}
+
+	for i, v := range videoCache {
+		thumbPath := filepath.Join(filepath.Dir(v.Video), ".thumb", filepath.Base(v.Video))
+		if utils.HasFile(thumbPath) {
+			videoCache = videoCache[i+1:]
+			return v
+		}
+	}
+
+	return
+
+}
+
+func (s *Storage) GetOneVideoNoteBySize2(token string) (resp model.Note, nextToken string, err error) {
+
+	cacheV := tryGetVideoFromCache()
+	if cacheV.ID > 0 {
+		log.Printf("GetOneVideoNoteBySize2 tryGetVideoFromCache succ:%+v", cacheV.Video)
+		return cacheV, token, nil
+	}
+
+	ms := []q.Matcher{
+		q.Eq("IsDelete", false),
+		q.Not(q.Eq("Video", "")),
+		q.Eq("Tags", nil),
+		//q.Gt("FileSize", 1),
+	}
+
+	if token != "" {
+		lastID, _ := strconv.Atoi(token)
+		if lastID > 0 {
+			ms = append(ms, q.Gt("ID", lastID))
+		}
+	}
+
+	step := 100
+
+	resps := []model.Note{}
+	s.db.From("note").Select(ms...).Limit(step).Find(&resps)
+
+	if len(resps) > 0 {
+		nextToken = strconv.Itoa(int(resps[len(resps)-1].ID))
+	}
+
+	sort.Slice(resps, func(i, j int) bool {
+		return resps[i].FileSize > resps[j].FileSize
+	})
+	if len(resps) >= 1 {
+		resp = resps[0]
+	}
+
+	if len(resps) > 1 {
+		videoCache = resps[1:]
+	}
+
+	return
+}
+
+func (s *Storage) GetOneVideoNoteBySize(token string) (resp model.Note, nextToken string, err error) {
+	ms := []q.Matcher{
+		q.Eq("IsDelete", false),
+		q.Not(q.Eq("Video", "")),
+		q.Eq("Tags", nil),
+	}
+	if token != "" {
+		lastID, _ := strconv.Atoi(token)
+		if lastID > 0 {
+			ms = append(ms, q.Gt("FileSizeReverse", int64(lastID)))
+		}
+	} else {
+		ms = append(ms, q.Gt("FileSizeReverse", 1))
+	}
+	err = s.db.From("note").Select(ms...).OrderBy("FileSizeReverse").First(&resp)
+	if resp.FileSizeReverse > 0 {
+		nextToken = strconv.FormatInt(resp.FileSizeReverse, 10)
+	}
+
+	return
+}
+
+func (s *Storage) GetOneNote(token string, t string) (resp model.Note, nextToken string, err error) {
+	ms := []q.Matcher{
+		q.Not(q.Eq("DownloadTime", nil)),
+		q.Eq("Tags", nil),
+	}
+	switch t {
+	case "image":
+		ms = append(ms, q.Not(q.Eq("Images", nil)))
+	case "live":
+		ms = append(ms, q.Not(q.Eq("Lives", nil)))
+	case "video":
+		ms = append(ms, q.Not(q.Eq("Video", "")))
+	}
+
+	if token != "" {
+		lastID, _ := strconv.Atoi(token)
+		if lastID > 0 {
+			ms = append(ms, q.Gt("ID", int64(lastID)))
+		}
+	}
+	err = s.db.From("note").Select(ms...).First(&resp)
+	if resp.ID > 0 {
+		nextToken = strconv.Itoa(int(resp.ID))
+	}
+
+	return
+}
+
+func (s *Storage) GetNotesByPage(limit int, token string) (resp []model.Note, nextToken string, err error) {
+	ms := []q.Matcher{
+		//q.Not(q.Eq("DownloadTime", nil)),
+	}
+
+	if token != "" {
+		lastID, _ := strconv.Atoi(token)
+		if lastID > 0 {
+			ms = append(ms, q.Lt("ID", int64(lastID)))
+		}
+	}
+
+	err = s.db.From("note").Select(ms...).OrderBy("ID").Limit(limit).Find(&resp)
+
+	if len(resp) > 0 {
+		nextToken = strconv.Itoa(int(resp[len(resp)-1].ID))
+	}
+
+	return
+}
+
+func (s *Storage) EachNoteByRange(skip int, fn func(n model.Note, currCount, totalCount int) (e error)) (err error) {
 
 	total := s.GetNoteTotalCount()
 
 	currCount := 0
 	lastID := int64(0)
+	round := 0
 	for {
+		round++
 		notes := []model.Note{}
-		options := []func(*index.Options){storm.Limit(100)}
+		options := []func(*index.Options){
+			storm.Limit(100),
+		}
+		if round == 1 && skip > 0 {
+			options = append(options, storm.Skip(skip))
+		}
 		err = s.db.From("note").Range("ID", lastID+1, int64(math.MaxInt64), &notes, options...)
 		if err != nil {
 			return

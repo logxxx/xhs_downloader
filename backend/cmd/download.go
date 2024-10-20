@@ -3,18 +3,16 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/logxxx/utils"
-	"github.com/logxxx/utils/ffmpeg"
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/randutil"
 )
@@ -45,7 +43,7 @@ func GetDownloadRealPath(req ParseBlogResp, idx int, mediaType string, downloadP
 	if mediaType == "image" && idx > 0 {
 		fileTitle += fmt.Sprintf("_%v", idx)
 	}
-	log.Printf("fileTitle:%v", fileTitle)
+	//log.Printf("fileTitle:%v", fileTitle)
 	suffix := ".jpg"
 	if mediaType == "video" || mediaType == "live" {
 		suffix = ".mp4"
@@ -66,13 +64,16 @@ func GetDownloadRealPath(req ParseBlogResp, idx int, mediaType string, downloadP
 	return fileRealPath
 }
 
-func downloadMedia(req ParseBlogResp, idx int, downloadPath string) (err error, canRetry bool) {
+func downloadMedia(req ParseBlogResp, idx int, downloadPath string, useBackup bool) (err error, canRetry bool) {
 
 	m := req.Medias[idx]
 
-	log.Printf("Downloading %v: %v", m.Type, m.URL)
+	reqURL := m.URL
+	if m.BackupURL != "" && useBackup {
+		reqURL = m.BackupURL
+	}
 
-	httpReq, _ := http.NewRequest("GET", m.URL, nil)
+	httpReq, _ := http.NewRequest("GET", reqURL, nil)
 	httpReq.Header.Set("user-agent", uaList[rand.Intn(len(uaList))])
 
 	httpResp, err := http.DefaultClient.Do(httpReq)
@@ -85,21 +86,32 @@ func downloadMedia(req ParseBlogResp, idx int, downloadPath string) (err error, 
 		httpResp.Body.Close()
 	}()
 
-	log.Printf("contentlen:%v", utils.GetShowSize(httpResp.ContentLength))
-
-	if httpResp.ContentLength > 200*1024*1024 {
+	if httpResp.ContentLength > 300*1024*1024 {
 		log.Printf("download GET err:%v", "file size too large")
 		err = errors.New("file too large")
-		//return
+		return
 	}
 
 	if httpResp.ContentLength <= 50*1024 {
 		log.Printf("download GET err:%v", "file size too small")
 		//err = errors.New("file too small")
 		//return
+		if httpResp.ContentLength == 0 {
+			err = errors.New("file body empty")
+			canRetry = true
+			return
+		}
 	}
 
 	fileRealPath := GetDownloadRealPath(req, idx, m.Type, downloadPath)
+
+	localFileSize := utils.GetFileSize(fileRealPath)
+	if localFileSize == httpResp.ContentLength {
+		log.Printf("already downloaded:%v size:%v", fileRealPath, utils.GetShowSize(localFileSize))
+		return
+	}
+
+	log.Printf("Downloading %v: %v contentlen:%v", m.Type, m.URL, utils.GetShowSize(httpResp.ContentLength))
 
 	os.MkdirAll(filepath.Dir(fileRealPath), 0755)
 	for {
@@ -134,103 +146,49 @@ func downloadMedia(req ParseBlogResp, idx int, downloadPath string) (err error, 
 	return
 }
 
+var (
+	downloadRetryCount = 0
+)
+
 func Download(req ParseBlogResp, downloadPath string, splitByDate bool) (resp []*Media) {
 
-	log.Printf("Downloading blog %+v", req)
+	if len(req.Medias) == 0 {
+		log.Printf("**** NOTHING TO DOWNLOAD ****")
+		return
+	}
 
 	if splitByDate {
 		downloadPath = filepath.Join(downloadPath, fmt.Sprintf("%v", time.Now().Format("20060102")))
 	}
 
+	//log.Printf("Downloading blog %+v", req)
+
 	for i := range req.Medias {
 		retryTimes := 0
-		err, canRetry := downloadMedia(req, i, downloadPath)
-		time.Sleep(2 * time.Second)
-		if err != nil {
-			log.Printf("downloadMedia err:%v", err)
-			if canRetry {
-				retryTimes++
-				if retryTimes > 5 {
-					continue
-				}
-				log.Printf("downloadMedia retry!")
-				err, _ = downloadMedia(req, i, downloadPath)
-			}
-		}
-
-		if err != nil {
+		err, canRetry := downloadMedia(req, i, downloadPath, false)
+		if err == nil {
+			thumb.MakeThumb(req.Medias[i].DownloadPath)
 			continue
 		}
 
-		filePath := req.Medias[i].DownloadPath
-		fileSize := utils.GetFileSize(filePath)
-		if fileSize > 3*1024*1024 {
-			if req.Medias[i].Type == "video" || req.Medias[i].Type == "live" {
-				makeThumb(filePath)
-			} else {
-				cmd := `ffmpeg -i %v -y -vf scale=480:-1 %v`
-				ffp := ffmpeg.FFProbe("ffprobe")
-				fInfo, _ := ffp.NewVideoFile(filePath)
-				if fInfo != nil && fInfo.Width < fInfo.Height {
-					cmd = `ffmpeg -i %v -y -vf scale=-1:480 %v`
-				}
-				cmd = fmt.Sprintf(cmd, filePath, filepath.Join(filepath.Dir(filePath), ".thumb", filepath.Base(filePath)))
+		if !canRetry {
+			continue
+		}
 
-				if !utils.HasFile(filepath.Join(filepath.Dir(filePath), ".thumb")) {
-					os.MkdirAll(filepath.Join(filepath.Dir(filePath), ".thumb"), 0755)
-				}
-				runCommand(cmd)
-			}
+		log.Printf("downloadMedia err:%v", err)
+		retryTimes++
+		if retryTimes > 5 {
+			continue
+		}
+		downloadRetryCount++
+		log.Printf("downloadMedia retry![%v]", downloadRetryCount)
+		err, _ = downloadMedia(req, i, downloadPath, true)
+
+		if err == nil {
+			thumb.MakeThumb(req.Medias[i].DownloadPath)
 		}
 
 	}
 
 	return req.Medias
-}
-
-func makeThumb(filePath string) error {
-
-	log.Printf("make thumb %v", filePath)
-	_, err := ffmpeg.GenePreviewVideoSlice(filePath, func(vInfo *ffmpeg.VideoFile) ffmpeg.GenePreviewVideoSliceOpt {
-
-		segNum := 3
-		segDur := 3
-		skipStart := 1
-		skipEnd := 3
-		if vInfo.Duration < 15 {
-			segNum = 2
-		}
-		if vInfo.Duration > 2*60 {
-			skipStart = 10
-			skipEnd = 30
-		}
-		if vInfo.Duration > 5*60 {
-			skipStart = 30
-			skipEnd = 30
-			segNum = 5
-		}
-
-		return ffmpeg.GenePreviewVideoSliceOpt{
-			//ToPath:      filePath + ".thumb.mp4",
-			ToPath:      filepath.Join(filepath.Dir(filePath), ".thumb", filepath.Base(filePath)),
-			SegNum:      segNum,
-			SegDuration: segDur,
-			SkipStart:   skipStart,
-			SkipEnd:     skipEnd,
-		}
-	})
-	return err
-}
-
-func runCommand(command string) (output []byte, err error) {
-	log.Printf("runCommand:%v", command)
-	args := strings.Split(command, " ")
-	cmd := exec.Command(args[0], args[1:]...)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("runCommand err:%v output:%v", err, string(output))
-		return
-	}
-	//log.Printf("runCommand output:%v", string(output))
-	return
 }

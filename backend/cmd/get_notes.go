@@ -35,6 +35,82 @@ func changeCookie() {
 	}
 }
 
+func StartDownloadRecrentlyNotes() {
+	changeCookie()
+
+	lastIDKey := fmt.Sprintf("StartDownloadRecrentlyNotes-last_id")
+	lastID := 0
+	storage.GetStorage().DB().Get("common", lastIDKey, &lastID)
+	log.Printf("lastID:%v", lastID)
+
+	for {
+
+		storage.GetStorage().EachUper(func(u model.Uper, currCount, totalCount int) (e error) {
+
+			if currCount < lastID {
+				return
+			}
+
+			storage.GetStorage().DB().Set("common", lastIDKey, currCount)
+
+			log.Infof("StartDownloadRecrentlyNotes EachUper:%v %v/%v", u.Name, currCount, totalCount)
+
+			if u.IsDelete {
+				log.Printf("uper deleted")
+				return
+			}
+
+			if currCount%10 == 0 {
+				changeCookie()
+			}
+
+			_, parseNotes, err := getNotes(u.UID, cookie, true)
+			if err != nil {
+				return
+			}
+
+			uperChanged := false
+			oldNoteCount := len(u.Notes)
+			for i, n := range parseNotes {
+
+				ok := u.AddNote(n.NoteID)
+				if ok {
+					uperChanged = true
+				} else {
+					log.Printf("AddNote already has:%v", n.Title)
+				}
+
+				dbNote := model.Note{
+					NoteID:    n.NoteID,
+					UperUID:   u.UID,
+					Title:     n.Title,
+					URL:       n.URL,
+					PosterURL: n.Poster,
+					LikeCount: n.LikeCount,
+				}
+				if ok {
+					insertOrUpdate, err := storage.GetStorage().InsertOrUpdateNote(dbNote)
+					if err != nil {
+						log.Printf("InsertOrUpdateNote err:%v dbNote:%+v", err, dbNote)
+						continue
+					}
+					_ = insertOrUpdate
+					log.Printf("InsertOrUpdateNote succ(%v/%v): %+v(%v)", i+1, len(parseNotes), dbNote.Title, insertOrUpdate)
+				}
+
+				DownloadNote(dbNote, true)
+			}
+
+			if uperChanged {
+				log.Infof("StartDownloadRecrentlyNotes update uper:%+v => %v", oldNoteCount, len(u.Notes))
+				storage.GetStorage().InsertOrUpdateUper(u)
+			}
+
+			return
+		})
+	}
+}
+
 func StartGetNotes() {
 
 	cookie = rawCookie
@@ -44,16 +120,16 @@ func StartGetNotes() {
 
 	continueNoNoteCount := 0
 	downloadedCount := 0
-	reachLast := false
+	//reachLast := false
 	for i, u := range upers {
 
-		if u == "65fb9db5000000000b00ec0b" {
-			reachLast = true
-		}
-
-		if !reachLast {
-			continue
-		}
+		//if u == "65fb9db5000000000b00ec0b" {
+		//	reachLast = true
+		//}
+		//
+		//if !reachLast {
+		//	continue
+		//}
 
 		if downloadedCount > 500 && i > 0 && i%50 == 0 {
 			log.Printf("sleep for i%%10==0")
@@ -76,7 +152,7 @@ func StartGetNotes() {
 		//if storage.GetStorage().IsUperScanned(u) {
 		//	continue
 		//}
-		parseUper, parseNotes, err := getNotes(u, cookie)
+		parseUper, parseNotes, err := getNotes(u, cookie, false)
 		if err != nil {
 			log.Printf("get parseNotes err:%v uid:%v", err, u)
 			if strings.Contains(err.Error(), "change account") {
@@ -216,7 +292,7 @@ func getAllUpers() []string {
 	return allProfiles
 }
 
-func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error) {
+func getNotes(uid, cookie string, onlyOnePage bool) (uper ParseUper, notes []ParseNote, err error) {
 
 	uperURL := fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%v?channel_type=web_note_detail_r10&parent_page_channel_type=web_profile_board", uid)
 
@@ -231,7 +307,7 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(setCookie),
-		chromedp.Sleep(5*time.Second),
+		chromedp.Sleep(1*time.Second),
 		chromedp.Navigate(uperURL),
 		chromedp.Sleep(2*time.Second),
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -299,6 +375,10 @@ func getNotes(uid, cookie string) (uper ParseUper, notes []ParseNote, err error)
 
 				log.Printf("round %v get %v notes", round, len(roundNotes))
 
+				if onlyOnePage {
+					break
+				}
+
 			}
 
 			return nil
@@ -336,7 +416,8 @@ func setCookie(ctx context.Context) error {
 	rawCookie := ctx.Value("XHS_COOKIE")
 	cookie, ok := rawCookie.(string)
 	if !ok || cookie == "" {
-		panic("no cookie")
+		//return errors.New("no cookie")
+		return nil
 	}
 
 	elems := strings.Split(cookie, "; ")
