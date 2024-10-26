@@ -7,6 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/reqresp"
+	"github.com/logxxx/xhs_downloader/biz/cookie"
+	"github.com/logxxx/xhs_downloader/biz/download"
+	"github.com/logxxx/xhs_downloader/biz/mydp"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"github.com/logxxx/xhs_downloader/config"
@@ -15,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -42,6 +46,22 @@ func InitWeb() {
 
 	g.StaticFile("/", GetDistDir())
 	g.StaticFS("/dist", gin.Dir(GetDistDir(), true))
+
+	g.GET("/download_shoucang", func(c *gin.Context) {
+		_, works, _ := mydp.ScanMyShoucang(cookie.GetCookie(), 1)
+		newCount := 0
+		for _, w := range works {
+			err := download.DownloadNoteByID(w)
+			if err == nil {
+				newCount++
+				continue
+			}
+			if err.Error() == "downloaded" {
+				break
+			}
+		}
+		reqresp.MakeResp(c, newCount)
+	})
 
 	g.GET("/now", func(c *gin.Context) {
 		c.String(200, time.Now().Format("2006-01-02 15:04:05"))
@@ -288,6 +308,11 @@ func InitWeb() {
 
 		resp := &proto.ApiGetUperNotesResp{}
 
+		type Tag struct {
+			tag   string
+			count int
+		}
+		tagMap := map[string]int{}
 		for i, n := range dbUper.Notes {
 
 			if i > 10 { //TODO: page
@@ -298,6 +323,18 @@ func InitWeb() {
 			if dbNote.NoteID == "" {
 				continue
 			}
+
+			if dbNote.IsDelete {
+				tagMap["delete"] += 1
+			}
+
+			for _, t := range dbNote.Tags {
+				if t == "" {
+					continue
+				}
+				tagMap[t] += 1
+			}
+
 			note := proto.ApiUperNote{
 				NoteID:    dbNote.NoteID,
 				Poster:    utils.B64(GetNotePosterPath(dbNote.UperUID, dbNote.NoteID)),
@@ -310,6 +347,18 @@ func InitWeb() {
 				IsDeleted: dbNote.IsDelete,
 			}
 			resp.Data = append(resp.Data, note)
+		}
+
+		tags := []Tag{}
+		for t, count := range tagMap {
+			tags = append(tags, Tag{tag: t, count: count})
+		}
+		sort.Slice(tags, func(i, j int) bool {
+			return tags[i].count > tags[j].count
+		})
+
+		for _, t := range tags {
+			resp.Tags = append(resp.Tags, fmt.Sprintf("%v:%v", t.tag, t.count))
 		}
 
 		reqresp.MakeResp(c, resp)

@@ -79,7 +79,7 @@ func makeThumbCore(filePath string) error {
 }
 
 func runCommand(command string) (output []byte, err error) {
-	log.Printf("runCommand:%v", command)
+	//log.Printf("runCommand:%v", command)
 	args := strings.Split(command, " ")
 	cmd := exec.Command(args[0], args[1:]...)
 	output, err = cmd.CombinedOutput()
@@ -112,6 +112,8 @@ func GenePreviewVideo(filePath string, toPath string) error {
 		return err
 	}
 	//log.Infof("height:%v width:%v", vInfo.Height, vInfo.Width)
+
+	os.MkdirAll(filepath.Dir(toPath), 0755)
 
 	height := vInfo.Height
 	width := vInfo.Width
@@ -166,6 +168,8 @@ func GeneVideoShot(filePath string, toPath string) error {
 		return err
 	}
 	//log.Infof("height:%v width:%v", vInfo.Height, vInfo.Width)
+
+	os.MkdirAll(filepath.Dir(toPath), 0755)
 
 	height := vInfo.Height
 	width := vInfo.Width

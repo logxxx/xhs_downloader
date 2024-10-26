@@ -20,6 +20,7 @@ type ApiUperInfo struct {
 }
 
 type ApiGetUperNotesResp struct {
+	Tags  []string      `json:"tags"`
 	Data  []ApiUperNote `json:"data,omitempty"`
 	Token string        `json:"token,omitempty"`
 }

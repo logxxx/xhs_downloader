@@ -1,4 +1,4 @@
-package main
+package blog
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/netutil"
+	"github.com/logxxx/xhs_downloader/biz/mydp"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 	"net/url"
@@ -23,19 +24,15 @@ type Media struct {
 }
 
 type ParseBlogResp struct {
-	Time    string   `json:"time,omitempty"`
-	BlogURL string   `json:"blog_url,omitempty"`
-	Author  string   `json:"author,omitempty"`
-	UserID  string   `json:"user_id,omitempty"`
-	Title   string   `json:"title,omitempty"`
-	Content string   `json:"content,omitempty"`
-	Medias  []*Media `json:"medias,omitempty"`
-	NoteID  string   `json:"note_id,omitempty"`
+	Time    string  `json:"time,omitempty"`
+	BlogURL string  `json:"blog_url,omitempty"`
+	Author  string  `json:"author,omitempty"`
+	UserID  string  `json:"user_id,omitempty"`
+	Title   string  `json:"title,omitempty"`
+	Content string  `json:"content,omitempty"`
+	Medias  []Media `json:"medias,omitempty"`
+	NoteID  string  `json:"note_id,omitempty"`
 }
-
-var (
-	visitorCookie = "acw_tc=58aa51fe6ea7617a43226c066f7f9d54e3597c9459e0c51593f39e372743c909; abRequestId=0b8ed859-19eb-56bc-8f58-ca4fdac0b477; webBuild=4.38.0; a1=19292cbf949hp1s9hit7ccmvdas7mm0ohbjy94rds50000202906; webId=b0e963478d63846917a8448ad5c06b81; xsecappid=ranchi; gid=yjJjJSSJdYxdyjJjJSDijD4F4jxUyMjx39WSVfMS6hf0Mv28W668lj888J8Jj8K8JJjD8DJJ; websectiga=16f444b9ff5e3d7e258b5f7674489196303a0b160e16647c6c2b4dcb609f4134; sec_poison_id=3d12a667-ab48-46a8-9cdd-1bbe54f02984"
-)
 
 func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 	httpReq := getHttpReq(reqURL, cookie, "")
@@ -54,6 +51,24 @@ func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 }
 
 func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
+
+	defer func() {
+		imgCount := 0
+		videoCount := 0
+		liveCount := 0
+		for _, m := range resp.Medias {
+			if m.Type == "image" {
+				imgCount++
+			}
+			if m.Type == "live" {
+				liveCount++
+			}
+			if m.Type == "video" {
+				videoCount++
+			}
+		}
+		log.Infof("ParseBlog get %v img, %v video, %v live", imgCount, videoCount, liveCount)
+	}()
 
 	//log.Printf("Start PraseBolg:%v", reqURL)
 
@@ -104,7 +119,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 		}
 		for _, imgInfo := range noteDetail.Note.ImageList {
 			if imgInfo.URL != "" {
-				resp.Medias = append(resp.Medias, &Media{
+				resp.Medias = append(resp.Medias, Media{
 					Type: "image",
 					URL:  imgInfo.URL,
 				})
@@ -114,7 +129,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 				//log.Infof("elem%v:%+v", i+1, elem)
 				if (elem.ImageScene == "CRD_WM_JPG" || elem.ImageScene == "WB_DFT") && elem.URL != "" {
 					//log.Infof("find img:%v", elem.URL)
-					resp.Medias = append(resp.Medias, &Media{
+					resp.Medias = append(resp.Medias, Media{
 						Type: "image",
 						URL:  elem.URL,
 					})
@@ -155,8 +170,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 				}
 			}
 			if live != "" {
-				log.Infof("FIND LIVE!!!!:%v", live)
-				resp.Medias = append(resp.Medias, &Media{
+				resp.Medias = append(resp.Medias, Media{
 					Type: "live",
 					URL:  live,
 				})
@@ -171,7 +185,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
 		masterURLObj, _ := url.Parse(masterURL)
 		videoURL := strings.TrimSuffix(masterURL, masterURLObj.Path) + "/" + origKey
-		resp.Medias = append(resp.Medias, &Media{
+		resp.Medias = append(resp.Medias, Media{
 			Type: "video",
 			URL:  videoURL,
 		})
@@ -182,7 +196,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 		resp.Title = resp.Content
 	}
 
-	movieMedias := []*Media{}
+	movieMedias := []Media{}
 	for _, m := range resp.Medias {
 		if m.Type == "video" || m.Type == "live" {
 			movieMedias = append(movieMedias, m)
@@ -439,7 +453,7 @@ type NoteResp struct {
 }
 
 func GetHtmlByChromedp(reqURL, cookie string) (resp []byte) {
-	ctx, cancel := getCtxWithCancel()
+	ctx, cancel := mydp.GetCtxWithCancel()
 	go func() {
 		time.Sleep(300 * time.Second)
 		cancel()
@@ -450,7 +464,7 @@ func GetHtmlByChromedp(reqURL, cookie string) (resp []byte) {
 
 	content := ""
 	chromedp.Run(ctx,
-		chromedp.ActionFunc(setCookie),
+		chromedp.ActionFunc(mydp.SetCookie),
 		chromedp.Navigate(reqURL),
 		chromedp.Sleep(10*time.Second),
 		chromedp.ActionFunc(func(ctx context.Context) error {

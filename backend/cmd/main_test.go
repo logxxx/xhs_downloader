@@ -3,7 +3,12 @@ package main
 import (
 	"fmt"
 	"github.com/logxxx/utils"
+	"github.com/logxxx/xhs_downloader/biz/blog"
+	"github.com/logxxx/xhs_downloader/biz/cookie"
+	"github.com/logxxx/xhs_downloader/biz/download"
+	"github.com/logxxx/xhs_downloader/biz/mydp"
 	"github.com/logxxx/xhs_downloader/biz/thumb"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"strings"
 	"testing"
@@ -46,21 +51,31 @@ func TestExtract(t *testing.T) {
 }
 
 func TestParseBlog2(t *testing.T) {
-	reqURL := "https://www.xiaohongshu.com/explore/66c6da5e000000001d03a049?xsec_token=AB7zvzDsrdgf3TEetNvxrhUxVQsn3jX43PdsUQKtHZpT4=&xsec_source=pc_user"
-	reqURL = "https://www.xiaohongshu.com/discovery/item/66c6da5e000000001d03a049?xsec_token=AB7zvzDsrdgf3TEetNvxrhUxVQsn3jX43PdsUQKtHZpT4=&xsec_source=pc_user"
-	//reqURL = "https://www.xiaohongshu.com/discovery/item/66c6da5e000000001d03a049"
-	reqURL = "https://www.xiaohongshu.com/explore/670e46760000000021002695?xsec_token=ABSwOPnSQyQzPoes8C28EX4-qxBEI8wTA5xQW3U24n0fQ=&xsec_source=pc_feed&source=404"
-	reqURL = "https://www.xiaohongshu.com/explore/671092d5000000002401a6dc?xsec_token=AB3S2QG8dzwwSE7BDEXwRpnf8P_QE6AVkXyFwRJE9XRic=&xsec_source=pc_user"
-	resp, err := ParseBlog(reqURL, rawCookie)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("resp:%+v", resp)
+	reqURL := `https://www.xiaohongshu.com/explore/67190e600000000024017615?xsec_token=ABoFitQaIom1egZSk8FNBYh8loEv-WWS29fw8fj2cUcyU=&xsec_source=pc_user`
 
-	Download(resp, "", false)
+	elems := strings.Split(reqURL, "\n")
+
+	for _, e := range elems {
+		resp, err := blog.ParseBlog(e, cookie.GetCookie())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("resp:%+v", resp)
+
+		download.Download(resp, "", false)
+	}
+
 }
 
 func TestGeneVideoShot(t *testing.T) {
 	thumb.GeneVideoShot("N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4",
 		"N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4.thumb.mp4")
+}
+
+func TestScanMyShoucang(t *testing.T) {
+	upers, works, _ := mydp.ScanMyShoucang(cookie.GetCookie(), 1)
+	log.Printf("upers(%v):%v \n works(%v)", len(upers), upers, len(works))
+	for i, w := range works {
+		log.Printf("%v: %v", i, w)
+	}
 }

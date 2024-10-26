@@ -72,3 +72,13 @@ func (n *Note) HasTag(t string) bool {
 	}
 	return false
 }
+
+func (n *Note) IsDownloaded() bool {
+	if n.ID <= 0 {
+		return false
+	}
+	if n.DownloadTime.IsZero() {
+		return false
+	}
+	return true
+}

@@ -103,6 +103,8 @@ func (s *Storage) UpdateNote(w model.Note) error {
 
 func (s *Storage) InsertOrUpdateNote(w model.Note) (insertOrUpdate string, err error) {
 
+	w.PosterURL = ""
+
 	if w.ID > 0 {
 		err = s.db.From("note").Update(&w)
 		if err != nil {
@@ -350,12 +352,17 @@ func tryGetVideoFromCache() (resp model.Note) {
 	}
 
 	for i, v := range videoCache {
+		if v.FileSize < 50*1024*1024 {
+			continue
+		}
 		thumbPath := filepath.Join(filepath.Dir(v.Video), ".thumb", filepath.Base(v.Video))
 		if utils.HasFile(thumbPath) {
 			videoCache = videoCache[i+1:]
 			return v
 		}
 	}
+
+	videoCache = []model.Note{}
 
 	return
 
@@ -366,7 +373,7 @@ func (s *Storage) GetOneVideoNoteBySize2(token string) (resp model.Note, nextTok
 	cacheV := tryGetVideoFromCache()
 	if cacheV.ID > 0 {
 		log.Printf("GetOneVideoNoteBySize2 tryGetVideoFromCache succ:%+v", cacheV.Video)
-		return cacheV, token, nil
+		return cacheV, strconv.Itoa(int(cacheV.ID)), nil
 	}
 
 	ms := []q.Matcher{

@@ -1,8 +1,9 @@
-package main
+package download
 
 import (
 	"errors"
 	"fmt"
+	"github.com/logxxx/xhs_downloader/biz/blog"
 	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"io"
 	"log"
@@ -31,7 +32,7 @@ var (
 	}
 )
 
-func GetDownloadRealPath(req ParseBlogResp, idx int, mediaType string, downloadPath string) string {
+func GetDownloadRealPath(req blog.ParseBlogResp, idx int, mediaType string, downloadPath string) string {
 
 	downloadPath = filepath.Join(downloadPath, req.UserID)
 
@@ -64,7 +65,7 @@ func GetDownloadRealPath(req ParseBlogResp, idx int, mediaType string, downloadP
 	return fileRealPath
 }
 
-func downloadMedia(req ParseBlogResp, idx int, downloadPath string, useBackup bool) (err error, canRetry bool) {
+func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBackup bool) (err error, canRetry bool) {
 
 	m := req.Medias[idx]
 
@@ -124,7 +125,7 @@ func downloadMedia(req ParseBlogResp, idx int, downloadPath string, useBackup bo
 	os.Remove(fileRealPath)
 	f, err := os.OpenFile(fileRealPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0766)
 	if err != nil {
-		log.Printf("download OpenFile err:%v path:%v", err, fileRealPath)
+		log.Printf("download OpenFile err:%v path:%v reqURL:%v", err, fileRealPath, reqURL)
 		return
 	}
 	defer func() {
@@ -136,7 +137,7 @@ func downloadMedia(req ParseBlogResp, idx int, downloadPath string, useBackup bo
 
 	_, err = io.Copy(f, httpResp.Body)
 	if err != nil {
-		log.Printf("download Copy err:%v path:%v", err, fileRealPath)
+		log.Printf("download Copy err:%v path:%v reqURL:%v", err, fileRealPath, reqURL)
 		canRetry = true
 		return
 	}
@@ -150,7 +151,7 @@ var (
 	downloadRetryCount = 0
 )
 
-func Download(req ParseBlogResp, downloadPath string, splitByDate bool) (resp []*Media) {
+func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (resp []blog.Media) {
 
 	if len(req.Medias) == 0 {
 		log.Printf("**** NOTHING TO DOWNLOAD ****")

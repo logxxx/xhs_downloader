@@ -14,6 +14,7 @@ func main() {
 	//runutil.GoRunSafe(StartGetNotes)
 	runutil.GoRunSafe(StartDownloadRecrentlyNotes)
 	runutil.GoRunSafe(StartDownloadNote)
+	runutil.GoRunSafe(StartScanMyShoucang)
 
 	//runutil.GoRunSafe(StartFillFileSize)
 

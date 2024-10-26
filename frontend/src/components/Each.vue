@@ -6,6 +6,8 @@
 
         <div style="color:whitesmoke;font-size: 30px;font-weight: bold;margin-top: 10px;margin-bottom: 5px;">{{getCurrUperInfo().name}}</div>
         <div style="color:whitesmoke;">{{getCurrUperInfo().desc}}</div>
+        <div style="color:whitesmoke;">{{getCurrUperInfo().tags}}</div>
+        <div style="color:whitesmoke;">{{getCurrUperInfo().myTags}}</div>
 
         <div style="display: flex; flex-wrap: wrap;height: 100vh;width:100vw;overflow-y: scroll">
 
@@ -24,7 +26,8 @@
 
         <div style="font-size: 20px;font-weight: bold;margin-top: 10px;margin-bottom: 5px;">{{getCurrUperInfo().name}}</div>
         <!--<div style="width:90%;margin:5px;word-wrap:break-word;color:whitesmoke">{{this.parseB64(this.currNote.video)}}</div>-->
-        <div style="color:whitesmoke">{{this.currNote.title}}</div>
+        <div style="color:whitesmoke"></div>
+        <div style="color:whitesmoke">{{this.nextToken}}&nbsp;{{this.currNote.title}}</div>
         <div style="color:whitesmoke">{{this.currNote.show_size}}</div>
 
       </div>
@@ -122,7 +125,7 @@ export default {
       isAddTagForUperAndAllNote: false,
 
       tagTmpl:[
-        {show:'颜值',value:'yanzhi'}, {show:'我看',value:'wokan'}, {show:'风景',value:'fengjing'},
+        {show:'颜值',value:'yanzhi'}, {show:'我看',value:'wokan'}, {show:'内内',value:'neinei'},
         {show:'自拍',value:'zipai'},{show:'没用',value:'meiyong'}, {show:'幼态',value:'youtai'},
         {show:'jio',value:'jio'}, {show:'ss',value:'ss'},{show:'超高',value:'high'},
         {show:'还行',value:'haixing'},{show:'跳舞',value:'tiaowu'}, {show:'摆拍', value:'baipai'},
@@ -164,6 +167,11 @@ export default {
     },
 
     addTag: function(tag){
+
+      showToast({
+        message: ""+tag+"+1",
+        duration: 500,
+      })
 
       let reqURL = ""
       if(tag == "meiyong") {
@@ -224,6 +232,7 @@ export default {
         }
 
         this.currUperNotes = resp.data.data
+        this.currUper.myTags = resp.data.tags
 
         console.log("set currUperNotes:", this.currUperNotes)
       })
