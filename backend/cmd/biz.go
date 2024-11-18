@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/asdine/storm/v3/q"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/netutil"
+	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/download"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/xhs"
@@ -13,6 +15,7 @@ import (
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -107,21 +110,49 @@ func StartDownloadNote() {
 
 	lastIDKey := fmt.Sprintf("StartDownloadNote-lastID")
 	lastID := 0
-	storage.GetStorage().DB().Get("common", lastIDKey, &lastID)
+	//storage.GetStorage().DB().Get("common", lastIDKey, &lastID)
 	log.Printf("StartDownloadNote-lastID:%v", lastID)
 
-	storage.GetStorage().EachNoteBySelect(lastID, func(n model.Note, currCount, totalCount int) (e error) {
+	continueMediasZeroCount := 0
+	cookie := cookie2.GetCookie3()
+	storage.GetStorage().EachNoteBySelect(50200, func(n model.Note, currCount, totalCount int) (e error) {
 
 		if n.IsDelete {
 			log.Printf("StartDownloadNote-Note is Deleted:%v", n.Title)
 			return
 		}
 
-		result := download.DownloadNote(n, false)
-		log.Infof("StartDownloadNote EachNoteBySelect(%v/%v):%+v result:%v", currCount, totalCount, n.Title, result)
+		//result := download.DownloadNote(n, false, false)
+		result := download.ParseNoteAndSaveSourceURL(currCount, n, cookie)
+		log.Infof("StartDownloadNote EachNoteBySelect(%v/%v):title:%+v url:%v result:%v", currCount, totalCount, n.Title, n.URL, result)
 
 		if currCount%10 == 0 {
+			//if cookie == cookie2.GetCookie1() {
+			//	cookie = cookie2.GetCookie2()
+			//} else {
+			//	cookie = cookie2.GetCookie1()
+			//}
 			storage.GetStorage().DB().Set("common", lastIDKey, currCount)
+		}
+
+		if result != "downloaded" && result != "NoteDisappeared" {
+			time.Sleep(10 * time.Second)
+			if currCount%100 == 0 {
+				time.Sleep(10 * time.Minute)
+			}
+		}
+
+		if strings.HasPrefix(result, "medias=") {
+			if result == "medias=0" {
+				continueMediasZeroCount++
+			} else {
+				continueMediasZeroCount = 0
+			}
+		}
+
+		if continueMediasZeroCount > 10 {
+			log.Printf("*************** continueMediasZeroCount TOO MANY:%v", continueMediasZeroCount)
+			return errors.New("continueMediasZeroCount too many")
 		}
 
 		return

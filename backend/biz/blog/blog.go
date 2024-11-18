@@ -3,11 +3,11 @@ package blog
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/chromedp/chromedp"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/netutil"
+	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -24,14 +24,15 @@ type Media struct {
 }
 
 type ParseBlogResp struct {
-	Time    string  `json:"time,omitempty"`
-	BlogURL string  `json:"blog_url,omitempty"`
-	Author  string  `json:"author,omitempty"`
-	UserID  string  `json:"user_id,omitempty"`
-	Title   string  `json:"title,omitempty"`
-	Content string  `json:"content,omitempty"`
-	Medias  []Media `json:"medias,omitempty"`
-	NoteID  string  `json:"note_id,omitempty"`
+	Time              string  `json:"time,omitempty"`
+	BlogURL           string  `json:"blog_url,omitempty"`
+	Author            string  `json:"author,omitempty"`
+	UserID            string  `json:"user_id,omitempty"`
+	Title             string  `json:"title,omitempty"`
+	Content           string  `json:"content,omitempty"`
+	Medias            []Media `json:"medias,omitempty"`
+	NoteID            string  `json:"note_id,omitempty"`
+	IsNoteDisappeared bool
 }
 
 func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
@@ -52,6 +53,16 @@ func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 
 func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
+	log.Printf("start ParseBlog:%v", reqURL)
+
+	defer func() {
+		log.Printf("finish ParseBlog:%v", reqURL)
+	}()
+
+	if !strings.HasPrefix(reqURL, "https:") {
+		reqURL = "https://www.xiaohongshu.com" + reqURL
+	}
+
 	defer func() {
 		imgCount := 0
 		videoCount := 0
@@ -67,7 +78,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 				videoCount++
 			}
 		}
-		log.Infof("ParseBlog get %v img, %v video, %v live", imgCount, videoCount, liveCount)
+		log.Infof("ParseBlog get %v img, %v video, %v live url:%v useCookie:%v", imgCount, videoCount, liveCount, reqURL, cookie2.GetCookieName(cookie))
 	}()
 
 	//log.Printf("Start PraseBolg:%v", reqURL)
@@ -77,30 +88,53 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
 	//httpResp := GetHtmlByChromedp(reqURL, "")
 	httpResp := GetHtmlByApi(reqURL, cookie)
+	log.Printf("GetHtmlByApi finish")
 
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live_%v.html", time.Now().Format("20060102_150405")))
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
 
+	//else if strings.Contains(string(httpResp), "你访问的页面不见了") {
+	//			reason = "note disappear"
+	//		}
+	if strings.Contains(string(httpResp), "你访问的页面不见了") {
+		resp.IsNoteDisappeared = true
+		return
+	}
+
 	content := utils.Extract(string(httpResp), "window.__INITIAL_STATE__=", "</script></body></html>")
 	if content == "" {
-		log.Infof("ParseBlog Extract empty! resp:%v", string(httpResp))
-		err = errors.New("parse failed")
+		reason := ""
+		if strings.Contains(string(httpResp), "您当前系统版本过低，请升级后再试") {
+			reason = "您当前系统版本过低，请升级后再试"
+		} else {
+			reason = string(httpResp)
+		}
+		log.Infof("ParseBlog Extract empty! url:%v resp:%v Cookie:%v", reqURL, reason, cookie2.GetCookieName(cookie))
+		//err = errors.New("parse failed")
 		return
 	}
-	//log.Infof("content:%v", content)
+	log.Printf("here Extract finish")
 
 	content = strings.ReplaceAll(content, "undefined", `null`)
+	//log.Infof("content:%v", content)
 
 	noteResp := &NoteResp{}
-	err = json.Unmarshal([]byte(content), noteResp)
-	if err != nil {
-		log.Infof("ParseBlog Unmarshal err:%v data:%v", err, content)
-		return
+	log.Printf("here Unmarshal start")
+	if content != "" {
+		err = json.Unmarshal([]byte(content), noteResp)
+		log.Printf("here Unmarshal end")
+		if err != nil {
+			//log.Printf("ParseBlog Unmarshal err:%v data:%v", err, content)
+			return
+		}
 	}
-	//log.Infof("NoteDetailMap:%+v", noteResp.Note.NoteDetailMap)
 
+	log.Printf("NoteDetailMap:%+v", "")
+
+	noteDetailCount := 0
 	for _, noteDetail := range noteResp.Note.NoteDetailMap {
-		//log.Infof(">>>>>>>>>>> note:%+v", noteDetail.Note)
+		noteDetailCount++
+		log.Infof(">>>>>>>>>>> note%v:%+v", noteDetailCount, noteDetail.Note)
 		if resp.NoteID == "" && noteDetail.Note.NoteID != "" {
 			resp.NoteID = noteDetail.Note.NoteID
 		}
@@ -137,15 +171,26 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 			}
 		}
 
-		for _, m := range resp.Medias {
-			if m.Type == "image" && strings.Contains(m.URL, "!nd_dft_wlteh_webp_3") {
+		for i := range resp.Medias {
+			m := &resp.Medias[i]
+			if m.Type == "image" && (strings.Contains(m.URL, "!nd_dft_wlteh_webp_3") || strings.Contains(m.URL, "!nd_dft_wgth_webp_3")) {
 				startIdx := strings.LastIndex(m.URL, "/")
 				if startIdx <= 0 {
+					log.Printf("get high image failed: startIdx <= 0:%v", m.URL)
 					continue
 				}
-				id := utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wlteh_webp_3")
+				id := ""
+				if strings.Contains(m.URL, "!nd_dft_wlteh_webp_3") {
+					id = utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wlteh_webp_3")
+				} else {
+					id = utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wgth_webp_3")
+				}
+
 				m.BackupURL = m.URL
 				m.URL = fmt.Sprintf("https://ci.xiaohongshu.com/%v?imageView2/2/w/format/png", id)
+				//log.Printf("set high img:%v", m.URL)
+			} else {
+				log.Printf("get high image failed: not contains nd_dft_wlteh_webp_3:%v", m.URL)
 			}
 		}
 
@@ -185,6 +230,12 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
 		masterURLObj, _ := url.Parse(masterURL)
 		videoURL := strings.TrimSuffix(masterURL, masterURLObj.Path) + "/" + origKey
+
+		if strings.Contains(videoURL, "sns-video-qc.xhscdn.com") {
+			log.Printf("XXXXXX FIND LOW QUALITY VIDEO:%v", videoURL)
+			continue
+		}
+
 		resp.Medias = append(resp.Medias, Media{
 			Type: "video",
 			URL:  videoURL,
@@ -192,13 +243,15 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
 	}
 
+	log.Printf("get %v medias", len(resp.Medias))
+
 	if resp.Title == "" && resp.Content != "" {
 		resp.Title = resp.Content
 	}
 
 	movieMedias := []Media{}
 	for _, m := range resp.Medias {
-		if m.Type == "video" || m.Type == "live" {
+		if m.Type == "video" {
 			movieMedias = append(movieMedias, m)
 		}
 	}

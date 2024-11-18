@@ -12,6 +12,7 @@ import (
 	"github.com/logxxx/xhs_downloader/config"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func StartDownloadRecrentlyNotes() {
 				cookie.ChangeCookie()
 			}
 
-			_, parseNotes, err := mydp.GetNotes(u.UID, cookie.GetCookie(), true)
+			_, parseNotes, err := mydp.GetNotes(u.UID, cookie.GetCookie(), 1)
 			if err != nil {
 				return
 			}
@@ -80,7 +81,7 @@ func StartDownloadRecrentlyNotes() {
 					log.Printf("InsertOrUpdateNote succ(%v/%v): %+v(%v)", i+1, len(parseNotes), dbNote.Title, insertOrUpdate)
 				}
 
-				download.DownloadNote(dbNote, true)
+				download.DownloadNote(dbNote, false, true)
 			}
 
 			if uperChanged {
@@ -93,11 +94,11 @@ func StartDownloadRecrentlyNotes() {
 	}
 }
 
-func DownloadUperFirstPageNotes(uid string) {
+func DownloadUperNPageNotes(uid string, n int) {
 
 	uper := storage.GetStorage().GetUper(0, uid)
 
-	parseUper, parseNotes, err := mydp.GetNotes(uid, cookie.GetCookie(), true)
+	parseUper, parseNotes, err := mydp.GetNotes(uid, cookie.GetCookie(), n)
 	if err != nil {
 		log.Printf("get parseNotes err:%v uid:%v", err, uid)
 		if strings.Contains(err.Error(), "change account") {
@@ -136,7 +137,13 @@ func DownloadUperFirstPageNotes(uid string) {
 
 	for i, n := range parseNotes {
 
-		dbNote := model.Note{
+		dbNote := storage.GetStorage().GetNote(n.NoteID)
+		if dbNote.IsDownloaded() {
+			log.Printf("note downloaded: %v %v", n.NoteID, dbNote.Title)
+			continue
+		}
+
+		dbNote = model.Note{
 			NoteID:    n.NoteID,
 			UperUID:   uid,
 			Title:     n.Title,
@@ -152,7 +159,8 @@ func DownloadUperFirstPageNotes(uid string) {
 		_ = insertOrUpdate
 		log.Printf("InsertOrUpdateNote succ(%v/%v): %+v(%v)", i+1, len(parseNotes), dbNote.Title, insertOrUpdate)
 
-		download.DownloadNote(dbNote, true)
+		result := download.DownloadNote(dbNote, true, true)
+		log.Printf("Downlaod Result:%v", result)
 
 		DownloadPoster(dbNote)
 	}
@@ -199,7 +207,7 @@ func StartGetNotes() {
 		//if storage.GetStorage().IsUperScanned(u) {
 		//	continue
 		//}
-		parseUper, parseNotes, err := mydp.GetNotes(u, cookie.GetCookie(), false)
+		parseUper, parseNotes, err := mydp.GetNotes(u, cookie.GetCookie(), -1)
 		if err != nil {
 			log.Printf("get parseNotes err:%v uid:%v", err, u)
 			if strings.Contains(err.Error(), "change account") {
@@ -341,19 +349,140 @@ func getAllUpers() []string {
 
 func StartScanMyShoucang() {
 	for {
-		upers, notes, err := mydp.ScanMyShoucang(cookie.GetCookie(), 20)
-		if err != nil {
-			log.Errorf("StartScanMyShoucang ScanMyShoucang err:%v", err)
-		}
-		for _, note := range notes {
-			download.DownloadNoteByID(note)
+
+		upers := []string{}
+
+		if utils.HasFile("myshoucang_50_upers.txt") {
+			fileutil.ReadByLine("myshoucang_50_upers.txt", func(s string) error {
+				if s == "" {
+					return nil
+				}
+				upers = append(upers, s)
+				return nil
+			})
+			log.Printf("get %v upers from 50_upers.txt", len(upers))
 		}
 
-		for _, u := range upers {
+		notes := []string{}
+		var err error
+		if len(upers) <= 0 {
+			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie1(), 50)
+			if err != nil {
+				log.Errorf("StartScanMyShoucang ScanMyShoucang err:%v", err)
+			}
+
+			fileutil.WriteToFile([]byte(strings.Join(upers, "\n")), "myshoucang_50_upers.txt")
+		}
+
+		for _, note := range notes {
+			err = download.DownloadNoteByID(note)
+			if err != nil {
+				log.Errorf("DownloadNoteByID err:%v note:%v", err, note)
+			}
+		}
+
+		hit := false
+		_ = hit
+		for i, u := range upers {
+
+			if u == "5dc0eb66000000000100502b" {
+				hit = true
+			}
+			if !hit {
+				//continue
+			}
+
+			if u == "5c26e25b0000000006012115" {
+				continue
+			}
+
+			log.Printf("Start scan uper %v/%v: %v", i+1, len(upers), u)
+
+			uper := storage.GetStorage().GetUper(0, u)
+			if uper.ID > 0 {
+				log.Printf("uper already has")
+				//continue
+			}
+
+			DownloadUperNPageNotes(u, -1)
+			cookie.ChangeCookie()
 			time.Sleep(1 * time.Minute)
-			DownloadUperFirstPageNotes(u)
 		}
 
 		time.Sleep(1 * time.Hour)
+
+		//for {
+		//	if time.Now().Hour() > 8 {
+		//		break
+		//	}
+		//	log.Printf("ScanMyShoucang skip: not time")
+		//	time.Sleep(10 * time.Minute)
+		//}
 	}
+}
+
+func FixFailedVideo() {
+	type Info struct {
+		Title        string
+		NoteURL      string
+		DownlaodPath string
+		VideoURL     string
+	}
+	notes := []Info{}
+	note := Info{}
+	line := 0
+	fileutil.ReadByLine("D:\\mytest\\mywork\\xhs_downloader\\backend\\cmd\\download_failed.txt", func(s string) (e error) {
+		line++
+		//富家千金风即视感美甲太有氛围感了美甲💅
+		//https://www.xiaohongshu.com/explore/663c8ae6000000001e0311db?xsec_token=ABvbFhKcuagTZtKpgvCXZSQGNmmP0NZGToqLLf9eRET6Q=&xsec_source=pc_user
+		//E:\xhs_downloader_output\20241030\5b012f40e8ac2b46e32d32a2\video\5b012f40e8ac2b46e32d32a2_663c8ae6000000001e0311db.mp4
+		//http://sns-video-bd.xhscdn.com/pre_post/1040g0cg312ips0n5080g4a5g28nk0cl2ssfuikg
+		if line%4 == 0 {
+			note.Title = s
+			return
+		}
+		if line%4 == 2 {
+			note.NoteURL = s
+			return
+		}
+		if line%4 == 3 {
+			note.DownlaodPath = s
+			return
+		}
+		if line%4 == 1 {
+			note.VideoURL = s
+			notes = append(notes, note)
+			note = Info{}
+			return
+		}
+		return
+	})
+
+	for i, n := range notes {
+		log.Printf("FixFailedVideo note %v/%v: %+v", i+1, len(notes), n)
+		if utils.GetFileSize(n.DownlaodPath) > 1024 {
+			log.Printf("ALREADY HAS FILE!")
+			continue
+		}
+		os.Remove(n.DownlaodPath)
+		_, respData, err := netutil.HttpGetRaw(n.VideoURL)
+		if err != nil {
+			log.Errorf("HttpGetRaw err:%v url:%v", err, n.VideoURL)
+			continue
+		}
+		fileutil.WriteToFile(respData, n.DownlaodPath)
+
+		dbNote := storage.GetStorage().GetNote(ExtractNoteIDByURL(n.NoteURL))
+		dbNote.Video = n.DownlaodPath
+		dbNote.DownloadNothing = false
+		dbNote.DownloadTime = time.Now()
+		err = storage.GetStorage().UpdateNote(dbNote)
+		if err != nil {
+			log.Errorf("UpdateNote err:%v dbNote:%+v", err, dbNote)
+		}
+	}
+}
+
+func ExtractNoteIDByURL(noteURL string) string {
+	return utils.Extract(noteURL, "/", "?")
 }

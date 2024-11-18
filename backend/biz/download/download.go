@@ -67,7 +67,7 @@ func GetDownloadRealPath(req blog.ParseBlogResp, idx int, mediaType string, down
 
 func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBackup bool) (err error, canRetry bool) {
 
-	m := req.Medias[idx]
+	m := &req.Medias[idx]
 
 	reqURL := m.URL
 	if m.BackupURL != "" && useBackup {
@@ -138,6 +138,7 @@ func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBack
 	_, err = io.Copy(f, httpResp.Body)
 	if err != nil {
 		log.Printf("download Copy err:%v path:%v reqURL:%v", err, fileRealPath, reqURL)
+		fileutil.AppendToFile("download_failed.txt", fmt.Sprintf("%v\n%v\n%v\n%v\n", req.Title, req.BlogURL, fileRealPath, reqURL))
 		canRetry = true
 		return
 	}
@@ -152,9 +153,10 @@ var (
 )
 
 func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (resp []blog.Media) {
+	log.Printf("Download start:%v %v", req.Title, req.BlogURL)
 
 	if len(req.Medias) == 0 {
-		log.Printf("**** NOTHING TO DOWNLOAD ****")
+		log.Printf("**** Download: NOTHING TO DOWNLOAD ****")
 		return
 	}
 
@@ -162,7 +164,7 @@ func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (re
 		downloadPath = filepath.Join(downloadPath, fmt.Sprintf("%v", time.Now().Format("20060102")))
 	}
 
-	//log.Printf("Downloading blog %+v", req)
+	log.Printf("Downloading to:%v", downloadPath)
 
 	for i := range req.Medias {
 		retryTimes := 0
@@ -171,12 +173,12 @@ func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (re
 			thumb.MakeThumb(req.Medias[i].DownloadPath)
 			continue
 		}
+		log.Printf("downloadMedia err:%v", err)
 
 		if !canRetry {
 			continue
 		}
 
-		log.Printf("downloadMedia err:%v", err)
 		retryTimes++
 		if retryTimes > 5 {
 			continue

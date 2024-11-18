@@ -8,6 +8,7 @@ import (
 	"github.com/asdine/storm/v3/q"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/logutil"
+	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"math"
@@ -338,7 +339,10 @@ func (s *Storage) EachNoteBySelect(skip int, fn func(n model.Note, currCount, to
 		lastID = notes[len(notes)-1].ID
 		for _, n := range notes {
 			currCount++
-			fn(n, currCount, total)
+			err := fn(n, currCount, total)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -390,7 +394,7 @@ func (s *Storage) GetOneVideoNoteBySize2(token string) (resp model.Note, nextTok
 		}
 	}
 
-	step := 100
+	step := 200
 
 	resps := []model.Note{}
 	s.db.From("note").Select(ms...).Limit(step).Find(&resps)
@@ -408,6 +412,14 @@ func (s *Storage) GetOneVideoNoteBySize2(token string) (resp model.Note, nextTok
 
 	if len(resps) > 1 {
 		videoCache = resps[1:]
+		for _, e := range videoCache {
+			filePath := e.Video
+			thumbPath := filepath.Join(filepath.Dir(filePath), ".thumb", filepath.Base(filePath))
+			if utils.HasFile(filePath) && !utils.HasFile(thumbPath) {
+				log.Printf("make thumb for GetOneVideoNoteBySize2:%v to:%v", filePath, thumbPath)
+				thumb.GeneVideoShot(filePath, thumbPath)
+			}
+		}
 	}
 
 	return

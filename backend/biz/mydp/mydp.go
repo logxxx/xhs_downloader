@@ -9,6 +9,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/logxxx/utils"
+	"github.com/logxxx/utils/randutil"
 	"github.com/logxxx/xhs_downloader/biz/black"
 	log "github.com/sirupsen/logrus"
 	"math/rand"
@@ -19,9 +20,12 @@ import (
 
 func GetCtxWithCancel() (context.Context, func()) {
 	var options []chromedp.ExecAllocatorOption
-	options = append(options, chromedp.DisableGPU)
+	//options = append(options, chromedp.DisableGPU)
 	options = append(options, chromedp.Flag("ignore-certificate-errors", true))
 	options = append(options, chromedp.Flag("disable-web-security", true))
+	options = append(options, chromedp.Flag("enable-automation", false))                       //防止监测webdriver
+	options = append(options, chromedp.Flag("disable-blink-features", "AutomationControlled")) //禁用blink特征
+
 	//Flag("disable-features", "site-per-process,Translate,BlinkGenPropertyTrees"),
 	//options = append(options, chromedp.Flag("blink-settings", "imagesEnabled=false"))
 	//options = append(options, chromedp.Headless)
@@ -49,6 +53,7 @@ func SetCookie(ctx context.Context) error {
 		}
 		k := kv[0]
 		v := kv[1]
+
 		err := network.SetCookie(k, v).WithDomain(".xiaohongshu.com").
 			//WithHTTPOnly(true).
 			Do(ctx)
@@ -61,7 +66,7 @@ func SetCookie(ctx context.Context) error {
 	return nil
 }
 
-func GetNotes(uid, cookie string, onlyOnePage bool) (uper ParseUper, notes []ParseNote, err error) {
+func GetNotes(uid, cookie string, pageCount int) (uper ParseUper, notes []ParseNote, err error) {
 
 	uperURL := fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%v?channel_type=web_note_detail_r10&parent_page_channel_type=web_profile_board", uid)
 
@@ -110,11 +115,11 @@ func GetNotes(uid, cookie string, onlyOnePage bool) (uper ParseUper, notes []Par
 				notesStr := utils.JsonToString(roundNotes)
 				if lastRoundNotes == notesStr {
 					sameCount++
-					log.Printf("SAME %v", sameCount)
+					log.Printf("SAME %v works:%v", sameCount, len(roundNotes))
 					if len(lastRoundNotes) != 14 {
 						break
 					}
-					if sameCount < 3 {
+					if sameCount < 5 {
 						continue
 					}
 					log.Printf("loop %v break because notesStr is same.", round)
@@ -147,7 +152,7 @@ func GetNotes(uid, cookie string, onlyOnePage bool) (uper ParseUper, notes []Par
 
 				log.Printf("round %v get %v notes", round, len(roundNotes))
 
-				if onlyOnePage {
+				if pageCount > 0 && round > pageCount {
 					break
 				}
 
@@ -189,6 +194,8 @@ type ParseUper struct {
 
 func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err error) {
 
+	logger := log.WithField("trace_id", randutil.RandStr(8))
+
 	shoucangURL := "https://www.xiaohongshu.com/user/profile/61d13a62000000001000b704?tab=fav&subTab=note"
 
 	ctx, cancel := GetCtxWithCancel()
@@ -197,8 +204,18 @@ func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err er
 	lastUpers := []string{}
 
 	ctx = context.WithValue(ctx, "XHS_COOKIE", cookie)
-
+	worksDeepEqualCount := 0
 	chromedp.Run(ctx,
+		chromedp.ActionFunc(func(c context.Context) error {
+
+			headers := network.Headers{
+				"accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+				"accept-language": "zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7",
+				"referer":         "https://www.xiaohongshu.com/explore/67212cf1000000001d03ab89?xsec_token=ABd59NCaXTdJOzaocEwHW1rzCoKqDQUZrelRtfQKyoLn0=&xsec_source=pc_feed",
+				"user-agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+			}
+			return network.SetExtraHTTPHeaders(headers).Do(c)
+		}),
 		chromedp.ActionFunc(SetCookie),
 		chromedp.Navigate(shoucangURL),
 
@@ -214,19 +231,25 @@ func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err er
 					return nil
 				}
 
-				chromedp.Sleep(1 * time.Second).Do(ctx)
+				time.Sleep(time.Duration((1 + rand.Intn(3))) * time.Second)
 				content := ""
 				chromedp.InnerHTML(`document.querySelectorAll('.tab-content-item')[1]`, &content, chromedp.ByJSPath).Do(ctx)
 
-				err := chromedp.ScrollIntoView("document.querySelectorAll('.tab-content-item')[1].lastElementChild", chromedp.ByJSPath).Do(ctx)
+				log.Printf("scrolling page %v...", round+1)
+				//err := chromedp.ScrollIntoView("document.querySelectorAll('.tab-content-item')[1].lastElementChild", chromedp.ByJSPath).Do(ctx)
+				err := chromedp.ScrollIntoView("document.querySelectorAll('.note-item')[document.querySelectorAll('.note-item').length-1]", chromedp.ByJSPath).Do(ctx)
 				if err != nil {
 					panic(err)
 				}
 
 				pageUpers := utils.ExtractAll(content, `href="/user/profile/`, `?`, false)
 				if reflect.DeepEqual(pageUpers, lastUpers) {
-					log.Printf("deep equal:%v", pageUpers)
-					return nil
+					worksDeepEqualCount++
+					log.Printf("works deep equal[%v] %v", len(pageUpers), worksDeepEqualCount)
+					if worksDeepEqualCount > 10 {
+						return nil
+					}
+
 				}
 				lastUpers = pageUpers
 
@@ -242,8 +265,6 @@ func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err er
 					upers = append(upers, p)
 				}
 
-				log.Printf("round %v get %v newUper(%v)", round, newCount, len(upers))
-
 				pageWorks := utils.ExtractAll(content, `target="_self" href="/user/profile/`, `xsec_source=pc_user"`, false)
 
 				newWorkCount := 0
@@ -255,7 +276,7 @@ func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err er
 					works = append(works, strings.ReplaceAll("https://www.xiaohongshu.com/user/profile/"+w+"xsec_source=pc_user", "&amp;", "&"))
 				}
 
-				log.Printf("round %v get %v newWork(%v)", round, newWorkCount, len(works))
+				logger.Printf("round %v get newUper(%v/%v) newWork(%v/%v)", round, len(upers), newCount, newWorkCount, len(works))
 
 			}
 

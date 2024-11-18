@@ -40,6 +40,10 @@ func TestParseBlog(t *testing.T) {
 	}
 }
 
+func TestFixFailedVideo(t *testing.T) {
+	FixFailedVideo()
+}
+
 func TestExtract(t *testing.T) {
 	data, err := os.ReadFile("test_live.html")
 	if err != nil {
@@ -50,17 +54,26 @@ func TestExtract(t *testing.T) {
 	t.Logf("content:%v", content)
 }
 
-func TestParseBlog2(t *testing.T) {
-	reqURL := `https://www.xiaohongshu.com/explore/67190e600000000024017615?xsec_token=ABoFitQaIom1egZSk8FNBYh8loEv-WWS29fw8fj2cUcyU=&xsec_source=pc_user`
+func TestParseBlog4(t *testing.T) {
+	reqURL := `
+https://www.xiaohongshu.com/explore/6735dafa000000001d03a328?xsec_token=ABGySzItOAl0GlRWMirLd58nNoRxzS0WkPrU6jn_frQXU=&xsec_source=pc_feed
+`
 
 	elems := strings.Split(reqURL, "\n")
 
+	log.Printf("get %v elems", len(elems))
+
 	for _, e := range elems {
-		resp, err := blog.ParseBlog(e, cookie.GetCookie())
-		if err != nil {
-			t.Fatal(err)
+		if e == "" {
+			continue
 		}
-		t.Logf("resp:%+v", resp)
+		resp, err := blog.ParseBlog(e, cookie.GetCookie1())
+		if err != nil {
+			t.Logf("err:%+v", err)
+			//t.Fatal(err)
+			continue
+		}
+		t.Logf("ParseBlog resp:%+v", resp)
 
 		download.Download(resp, "", false)
 	}
@@ -68,8 +81,8 @@ func TestParseBlog2(t *testing.T) {
 }
 
 func TestGeneVideoShot(t *testing.T) {
-	thumb.GeneVideoShot("N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4",
-		"N:\\output_bili\\395358743\\雅乐大人_BV1A2421o7PY_面对牢弟偷吃零食牢雅的惩罚是_1.mp4.thumb.mp4")
+	thumb.GeneVideoShot("E:\\test\\1.mp4",
+		"E:\\test\\1.mp4.thumb.mp4")
 }
 
 func TestScanMyShoucang(t *testing.T) {

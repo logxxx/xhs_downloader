@@ -174,7 +174,7 @@ func GeneVideoShot(filePath string, toPath string) error {
 	height := vInfo.Height
 	width := vInfo.Width
 
-	min := 480
+	min := 640
 	if vInfo.Height > vInfo.Width { //竖屏
 
 		for {
@@ -205,7 +205,7 @@ func GeneVideoShot(filePath string, toPath string) error {
 
 	scale := fmt.Sprintf("%v:%v", width, height)
 
-	command := `ffmpeg -y -i %v -ss 00:00:05 -vf scale=%v -pix_fmt yuv420p -level 4.2 -crf 30 -threads 8 -strict -2 -frames:v 24 %v`
+	command := `ffmpeg -y -i %v -ss 00:00:05 -vf scale=%v -pix_fmt yuv420p -level 4.2 -crf 30 -threads 8 -strict -2 -frames:v 120 %v`
 	command = fmt.Sprintf(command, filePath, scale, toPath)
 	output, err := runCommand(command)
 	log.Debugf("GeneVideoShot command:%v output:%v err:%v", command, string(output), err)

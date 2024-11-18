@@ -12,9 +12,11 @@ func main() {
 	black.Init("chore/black.txt", "chore/white.txt")
 
 	//runutil.GoRunSafe(StartGetNotes)
-	runutil.GoRunSafe(StartDownloadRecrentlyNotes)
-	runutil.GoRunSafe(StartDownloadNote)
+
+	//runutil.GoRunSafe(StartDownloadRecrentlyNotes)
+	//runutil.GoRunSafe(StartDownloadNote)
 	runutil.GoRunSafe(StartScanMyShoucang)
+	runutil.GoRunSafe(FixFailedVideo)
 
 	//runutil.GoRunSafe(StartFillFileSize)
 

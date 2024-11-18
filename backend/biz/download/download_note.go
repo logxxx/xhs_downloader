@@ -1,8 +1,11 @@
 package download
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/logxxx/utils"
+	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/xhs_downloader/biz/black"
 	"github.com/logxxx/xhs_downloader/biz/blog"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
@@ -13,7 +16,50 @@ import (
 	"time"
 )
 
-func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
+func ParseNoteAndSaveSourceURL(idx int, n model.Note, cookie string) (result string) {
+
+	if n.IsDownloaded() {
+		return "downloaded"
+	}
+
+	type SaveInfo struct {
+		Idx       int
+		UperUID   string
+		NoteID    string
+		URL       string
+		Medias    []blog.Media
+		ParseTime string
+	}
+
+	parseResp, err := blog.ParseBlog(n.URL, cookie)
+	if err != nil {
+		log.Errorf("ParseBlog err:%v", err)
+		return
+	}
+
+	if parseResp.IsNoteDisappeared {
+		result = "NoteDisappeared"
+		return
+	}
+
+	if len(parseResp.Medias) > 0 {
+		saveInfo := SaveInfo{
+			Idx:       idx,
+			UperUID:   n.UperUID,
+			NoteID:    n.NoteID,
+			URL:       n.URL,
+			Medias:    parseResp.Medias,
+			ParseTime: time.Now().Format("0102_150405"),
+		}
+
+		saveInfoData, _ := json.Marshal(saveInfo)
+		fileutil.AppendToFile("parse_result.json", fmt.Sprintf("%v,\n", string(saveInfoData)))
+	}
+
+	return fmt.Sprintf("medias=%v", len(parseResp.Medias))
+}
+
+func DownloadNote(n model.Note, directlyUseCookie bool, canChangeCookieWhenRetry bool) (result string) {
 	logger := log.WithField("func_name", "StartDownloadNote")
 
 	//counter[n.UperUID]++
@@ -21,10 +67,6 @@ func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
 	//	//logger.Infof("download enough")
 	//	return
 	//}
-
-	if !strings.HasPrefix(n.URL, "https:") {
-		n.URL = "https://www.xiaohongshu.com" + n.URL
-	}
 
 	if !n.DownloadTime.IsZero() {
 		//logger.Infof("Downloaded")
@@ -88,14 +130,18 @@ func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
 		"uper_uid": n.UperUID,
 	})
 
-	parseResp, err := blog.ParseBlog(n.URL, "")
+	input := ""
+	if directlyUseCookie {
+		input = cookie.GetCookie3()
+	}
+	parseResp, err := blog.ParseBlog(n.URL, input)
 	if err != nil {
 		log.Errorf("ParseBlog err:%v", err)
 		return
 	}
 
 	if len(parseResp.Medias) == 0 {
-		log.Infof("*** find Medias not exists, check AGAIN!!!")
+		log.Infof("*** DownloadNote find Medias not exists, check AGAIN")
 		elems := strings.Split(n.URL, "/")
 		reqURL := "https://www.xiaohongshu.com/explore/" + elems[len(elems)-1]
 		log.Infof("reqURL:%v", reqURL)
@@ -107,7 +153,7 @@ func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
 	}
 
 	if len(parseResp.Medias) == 0 {
-		log.Infof("*** NO MEDIA ***")
+		log.Infof("*** DownloadNote NO MEDIA ***")
 		n.DownloadTime = time.Now()
 		n.DownloadNothing = true
 		storage.GetStorage().UpdateNote(n)
@@ -117,6 +163,7 @@ func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
 	log.Infof("start download: %v", n.URL)
 	resp := Download(parseResp, "E:/xhs_downloader_output", true)
 	//resp := Download(parseResp, "chore/download/notes_by_uper", true)
+	log.Infof("download resp:%+v", resp)
 
 	isChanged := false
 	for _, m := range resp {
@@ -158,9 +205,11 @@ func DownloadNote(n model.Note, canChangeCookieWhenRetry bool) (result string) {
 			log.Errorf("InsertOrUpdateNote err:%v n:%+v", err, n)
 		}
 
-		//newNote := storage.GetStorage().GetNote(n.NoteID)
-		//log.Infof("after update, note:%+v", newNote)
+		newNote := storage.GetStorage().GetNote(n.NoteID)
+		log.Infof("after update, note:%+v", newNote)
 
+	} else {
+		log.Infof("no change, no need to update")
 	}
 
 	return
@@ -172,7 +221,7 @@ func DownloadNoteByID(note string) (err error) {
 		return errors.New("downloaded")
 	}
 
-	blog, err := blog.ParseBlog(note, cookie.GetCookie())
+	blog, err := blog.ParseBlog(note, cookie.GetCookie3())
 	if err != nil {
 		log.Errorf("StartScanMyShoucang ParseBlog err:%v note:%v", err, note)
 		return
@@ -198,7 +247,7 @@ func DownloadNoteByID(note string) (err error) {
 		}
 	}
 
-	DownloadNote(dbNote, true)
+	DownloadNote(dbNote, false, true)
 
 	return
 

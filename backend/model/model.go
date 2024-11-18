@@ -80,5 +80,8 @@ func (n *Note) IsDownloaded() bool {
 	if n.DownloadTime.IsZero() {
 		return false
 	}
+	if len(n.Images) <= 0 && len(n.Lives) <= 0 && n.Video == "" {
+		return false
+	}
 	return true
 }
