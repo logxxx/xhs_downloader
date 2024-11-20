@@ -107,12 +107,13 @@ func InitWeb() {
 				UperUID: dbNote.UperUID,
 				NoteID:  dbNote.NoteID,
 				//Poster:   utils.B64(GetNotePosterPath(dbNote.UperUID, dbNote.NoteID)),
-				Title:    dbNote.Title,
-				Content:  dbNote.Content,
-				Video:    utils.B64(dbNote.Video),
-				Images:   ArrayB64(dbNote.Images),
-				Lives:    ArrayB64(dbNote.Lives),
-				ShowSize: utils.GetShowSize(dbNote.FileSize),
+				Title:        dbNote.Title,
+				Content:      dbNote.Content,
+				Video:        utils.B64(dbNote.Video),
+				Images:       ArrayB64(dbNote.Images),
+				Lives:        ArrayB64(dbNote.Lives),
+				ShowSize:     utils.GetShowSize(dbNote.FileSize),
+				DownloadTime: dbNote.DownloadTime.Format("20060102 15:04:05"),
 			},
 			Token: nextToken,
 		}
@@ -300,6 +301,9 @@ func InitWeb() {
 			return
 		}
 
+		limitStr := c.Query("limit")
+		limit, _ := strconv.Atoi(limitStr)
+
 		dbUper := storage.GetStorage().GetUper(0, uid)
 		if dbUper.ID <= 0 {
 			reqresp.MakeErrMsg(c, errors.New("uper not found"))
@@ -315,7 +319,7 @@ func InitWeb() {
 		tagMap := map[string]int{}
 		for i, n := range dbUper.Notes {
 
-			if i > 10 { //TODO: page
+			if limit > 0 && i >= limit { //TODO: page
 				break
 			}
 
@@ -336,15 +340,16 @@ func InitWeb() {
 			}
 
 			note := proto.ApiUperNote{
-				NoteID:    dbNote.NoteID,
-				Poster:    utils.B64(GetNotePosterPath(dbNote.UperUID, dbNote.NoteID)),
-				Title:     dbNote.Title,
-				Content:   dbNote.Content,
-				Video:     "",  //todo
-				Images:    nil, //todo
-				Lives:     nil, //todo
-				Tags:      dbNote.Tags,
-				IsDeleted: dbNote.IsDelete,
+				NoteID:       dbNote.NoteID,
+				Poster:       utils.B64(GetNotePosterPath(dbNote.UperUID, dbNote.NoteID)),
+				Title:        dbNote.Title,
+				Content:      dbNote.Content,
+				Video:        dbNote.Video,
+				Images:       dbNote.Images,
+				Lives:        dbNote.Lives,
+				Tags:         dbNote.Tags,
+				IsDeleted:    dbNote.IsDelete,
+				DownloadTime: dbNote.DownloadTime.Format("2006/01/02 15:04:05"),
 			}
 			resp.Data = append(resp.Data, note)
 		}

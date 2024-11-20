@@ -352,8 +352,10 @@ func StartScanMyShoucang() {
 
 		upers := []string{}
 
-		if utils.HasFile("myshoucang_50_upers.txt") {
-			fileutil.ReadByLine("myshoucang_50_upers.txt", func(s string) error {
+		upersFile := "chore/myshoucang_50_upers.txt"
+
+		if utils.HasFile(upersFile) {
+			fileutil.ReadByLine(upersFile, func(s string) error {
 				if s == "" {
 					return nil
 				}
@@ -366,12 +368,12 @@ func StartScanMyShoucang() {
 		notes := []string{}
 		var err error
 		if len(upers) <= 0 {
-			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie1(), 50)
+			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie1(), -1)
 			if err != nil {
 				log.Errorf("StartScanMyShoucang ScanMyShoucang err:%v", err)
 			}
 
-			fileutil.WriteToFile([]byte(strings.Join(upers, "\n")), "myshoucang_50_upers.txt")
+			fileutil.WriteToFile([]byte(strings.Join(upers, "\n")), upersFile)
 		}
 
 		for _, note := range notes {
@@ -383,14 +385,19 @@ func StartScanMyShoucang() {
 
 		hit := false
 		_ = hit
+
 		for i, u := range upers {
 
-			if u == "5dc0eb66000000000100502b" {
-				hit = true
+			if len(u) != 24 {
+				continue
 			}
-			if !hit {
-				//continue
-			}
+
+			//if u == "6538efba000000000d00672a" {
+			//	hit = true
+			//}
+			//if !hit {
+			//	continue
+			//}
 
 			if u == "5c26e25b0000000006012115" {
 				continue

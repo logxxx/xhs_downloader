@@ -26,17 +26,18 @@ type ApiGetUperNotesResp struct {
 }
 
 type ApiUperNote struct {
-	UperUID   string   `json:"uper_uid,omitempty"`
-	NoteID    string   `json:"note_id,omitempty"`
-	Poster    string   `json:"poster,omitempty"`
-	Title     string   `json:"title,omitempty"`
-	Content   string   `json:"content,omitempty"`
-	Video     string   `json:"video,omitempty"`
-	Images    []string `json:"images,omitempty"`
-	Lives     []string `json:"lives,omitempty"`
-	Tags      []string `json:"tags"`
-	ShowSize  string   `json:"show_size,omitempty"`
-	IsDeleted bool     `json:"is_deleted,omitempty"`
+	UperUID      string   `json:"uper_uid,omitempty"`
+	NoteID       string   `json:"note_id,omitempty"`
+	Poster       string   `json:"poster,omitempty"`
+	Title        string   `json:"title,omitempty"`
+	Content      string   `json:"content,omitempty"`
+	Video        string   `json:"video,omitempty"`
+	Images       []string `json:"images,omitempty"`
+	Lives        []string `json:"lives,omitempty"`
+	Tags         []string `json:"tags"`
+	ShowSize     string   `json:"show_size,omitempty"`
+	IsDeleted    bool     `json:"is_deleted,omitempty"`
+	DownloadTime string   `json:"download_time"`
 }
 
 type ApiGetOneNoteResp struct {

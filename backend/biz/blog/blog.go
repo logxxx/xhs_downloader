@@ -78,7 +78,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 				videoCount++
 			}
 		}
-		log.Infof("ParseBlog get %v img, %v video, %v live url:%v useCookie:%v", imgCount, videoCount, liveCount, reqURL, cookie2.GetCookieName(cookie))
+		log.Infof("ParseBlog url:%v get %vI%vV%vL total:%v *** useCookie:%v ***", reqURL, imgCount, videoCount, liveCount, imgCount+videoCount+liveCount, cookie2.GetCookieName(cookie))
 	}()
 
 	//log.Printf("Start PraseBolg:%v", reqURL)
@@ -88,7 +88,7 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 
 	//httpResp := GetHtmlByChromedp(reqURL, "")
 	httpResp := GetHtmlByApi(reqURL, cookie)
-	log.Printf("GetHtmlByApi finish")
+	//log.Printf("GetHtmlByApi finish")
 
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live_%v.html", time.Now().Format("20060102_150405")))
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
@@ -113,28 +113,28 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 		//err = errors.New("parse failed")
 		return
 	}
-	log.Printf("here Extract finish")
+	//log.Printf("here Extract finish")
 
 	content = strings.ReplaceAll(content, "undefined", `null`)
 	//log.Infof("content:%v", content)
 
 	noteResp := &NoteResp{}
-	log.Printf("here Unmarshal start")
+	//log.Printf("here Unmarshal start")
 	if content != "" {
 		err = json.Unmarshal([]byte(content), noteResp)
-		log.Printf("here Unmarshal end")
+		//log.Printf("here Unmarshal end")
 		if err != nil {
 			//log.Printf("ParseBlog Unmarshal err:%v data:%v", err, content)
 			return
 		}
 	}
 
-	log.Printf("NoteDetailMap:%+v", "")
+	//log.Printf("NoteDetailMap:%+v", "")
 
 	noteDetailCount := 0
 	for _, noteDetail := range noteResp.Note.NoteDetailMap {
 		noteDetailCount++
-		log.Infof(">>>>>>>>>>> note%v:%+v", noteDetailCount, noteDetail.Note)
+		//log.Infof(">>>>>>>>>>> note%v:%+v", noteDetailCount, noteDetail.Note)
 		if resp.NoteID == "" && noteDetail.Note.NoteID != "" {
 			resp.NoteID = noteDetail.Note.NoteID
 		}
