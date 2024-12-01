@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/logxxx/utils/fileutil"
-	"github.com/logxxx/xhs_downloader/biz/blog"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	log "github.com/sirupsen/logrus"
 	"strings"
 )
@@ -14,7 +14,7 @@ func main() {
 		UperUID   string
 		NoteID    string
 		URL       string
-		Medias    []blog.Media
+		Medias    []blogmodel.Media
 		ParseTime string
 	}
 	infos := []SaveInfo{}

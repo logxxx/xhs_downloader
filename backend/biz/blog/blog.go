@@ -1,39 +1,18 @@
 package blog
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/chromedp/chromedp"
-	"github.com/logxxx/utils"
+	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/netutil"
+	"github.com/logxxx/utils/randutil"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogutil"
 	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
-	"github.com/logxxx/xhs_downloader/biz/mydp"
 	log "github.com/sirupsen/logrus"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
-
-type Media struct {
-	Type         string `json:"type,omitempty"`
-	URL          string `json:"url,omitempty"`
-	BackupURL    string `json:"backup_url,omitempty"`
-	DownloadPath string `json:"download_path,omitempty"`
-}
-
-type ParseBlogResp struct {
-	Time              string  `json:"time,omitempty"`
-	BlogURL           string  `json:"blog_url,omitempty"`
-	Author            string  `json:"author,omitempty"`
-	UserID            string  `json:"user_id,omitempty"`
-	Title             string  `json:"title,omitempty"`
-	Content           string  `json:"content,omitempty"`
-	Medias            []Media `json:"medias,omitempty"`
-	NoteID            string  `json:"note_id,omitempty"`
-	IsNoteDisappeared bool
-}
 
 func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 	httpReq := getHttpReq(reqURL, cookie, "")
@@ -51,7 +30,7 @@ func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 	return httpResp
 }
 
-func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
+func ParseBlog(reqURL, cookie string) (resp blogmodel.ParseBlogResp, err error) {
 
 	log.Printf("start ParseBlog:%v", reqURL)
 
@@ -78,206 +57,54 @@ func ParseBlog(reqURL, cookie string) (resp ParseBlogResp, err error) {
 				videoCount++
 			}
 		}
-		log.Infof("ParseBlog url:%v get %vI%vV%vL total:%v *** useCookie:%v ***", reqURL, imgCount, videoCount, liveCount, imgCount+videoCount+liveCount, cookie2.GetCookieName(cookie))
+		log.Infof("ParseBlog url:%v get %vI%vV%vL total:%v *** useCookie:%v ***", reqURL, imgCount, videoCount, liveCount, imgCount+videoCount+liveCount, cookie2.GetCookieName(resp.UseCookie))
 	}()
 
+	remoteURL := fmt.Sprintf("http://47.119.170.71:8088/parse_blog?blog_url=%v&trace_id=%v", reqURL, randutil.RandStr(8))
+	//remoteURL := fmt.Sprintf("http://127.0.0.1:8088/parse_blog?blog_url=%v&trace_id=%v", reqURL, randutil.RandStr(8))
+	log.Printf("remoteURL:%v", remoteURL)
+	remoteReq, _ := http.NewRequest("GET", remoteURL, nil)
+	remoteReq.Header.Set("mycookie", cookie)
+	code, err := netutil.HttpReqGet(remoteReq, &resp)
+	if code == 200 {
+		log.Infof("****** GET BLOG INFO FROM REMOTE ******")
+		resp.IsFromRemote = true
+		return
+	}
+	log.Infof("GET BLOG INFO FROM REMOTE failed. code:%v err:%v", code, err)
+
+	return ParseBlogCore(reqURL, cookie)
+
+}
+
+func ParseBlogCore(reqURL, cookie string) (resp blogmodel.ParseBlogResp, err error) {
 	//log.Printf("Start PraseBolg:%v", reqURL)
 
-	resp.BlogURL = reqURL
-	resp.Time = time.Now().Format("20060102 15:04:05")
-
-	//httpResp := GetHtmlByChromedp(reqURL, "")
+	//httpResp := GetHtmlByChromedp(reqURL, cookie)
 	httpResp := GetHtmlByApi(reqURL, cookie)
 	//log.Printf("GetHtmlByApi finish")
 
 	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live_%v.html", time.Now().Format("20060102_150405")))
-	//fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
+	fileutil.WriteToFile(httpResp, fmt.Sprintf("test_live.html"))
 
 	//else if strings.Contains(string(httpResp), "你访问的页面不见了") {
 	//			reason = "note disappear"
 	//		}
-	if strings.Contains(string(httpResp), "你访问的页面不见了") {
-		resp.IsNoteDisappeared = true
-		return
-	}
 
-	content := utils.Extract(string(httpResp), "window.__INITIAL_STATE__=", "</script></body></html>")
-	if content == "" {
-		reason := ""
-		if strings.Contains(string(httpResp), "您当前系统版本过低，请升级后再试") {
-			reason = "您当前系统版本过低，请升级后再试"
-		} else {
-			reason = string(httpResp)
-		}
-		log.Infof("ParseBlog Extract empty! url:%v resp:%v Cookie:%v", reqURL, reason, cookie2.GetCookieName(cookie))
-		//err = errors.New("parse failed")
-		return
-	}
 	//log.Printf("here Extract finish")
 
-	content = strings.ReplaceAll(content, "undefined", `null`)
-	//log.Infof("content:%v", content)
-
-	noteResp := &NoteResp{}
-	//log.Printf("here Unmarshal start")
-	if content != "" {
-		err = json.Unmarshal([]byte(content), noteResp)
-		//log.Printf("here Unmarshal end")
-		if err != nil {
-			//log.Printf("ParseBlog Unmarshal err:%v data:%v", err, content)
-			return
-		}
+	resp, err = blogutil.ParseNoteHTML(string(httpResp))
+	if err != nil {
+		return
+	}
+	if resp.FailedReason != "" {
+		log.Infof("ParseBlog Failed! url:%v resp:%v Cookie:%v", reqURL, resp.FailedReason, cookie2.GetCookieName(cookie))
 	}
 
-	//log.Printf("NoteDetailMap:%+v", "")
+	resp.BlogURL = reqURL
+	resp.Time = time.Now().Format("20060102 15:04:05")
 
-	noteDetailCount := 0
-	for _, noteDetail := range noteResp.Note.NoteDetailMap {
-		noteDetailCount++
-		//log.Infof(">>>>>>>>>>> note%v:%+v", noteDetailCount, noteDetail.Note)
-		if resp.NoteID == "" && noteDetail.Note.NoteID != "" {
-			resp.NoteID = noteDetail.Note.NoteID
-		}
-		if resp.Content == "" && noteDetail.Note.Desc != "" {
-			resp.Content = noteDetail.Note.Desc
-		}
-
-		if noteDetail.Note.Title != "" && resp.Title == "" {
-
-			resp.Title = noteDetail.Note.Title
-
-		}
-		if noteDetail.Note.User.Nickname != "" && resp.Author == "" {
-			resp.Author = noteDetail.Note.User.Nickname
-			resp.UserID = noteDetail.Note.User.UserID
-		}
-		for _, imgInfo := range noteDetail.Note.ImageList {
-			if imgInfo.URL != "" {
-				resp.Medias = append(resp.Medias, Media{
-					Type: "image",
-					URL:  imgInfo.URL,
-				})
-			}
-
-			for _, elem := range imgInfo.InfoList {
-				//log.Infof("elem%v:%+v", i+1, elem)
-				if (elem.ImageScene == "CRD_WM_JPG" || elem.ImageScene == "WB_DFT") && elem.URL != "" {
-					//log.Infof("find img:%v", elem.URL)
-					resp.Medias = append(resp.Medias, Media{
-						Type: "image",
-						URL:  elem.URL,
-					})
-				}
-			}
-		}
-
-		for i := range resp.Medias {
-			m := &resp.Medias[i]
-			if m.Type == "image" && (strings.Contains(m.URL, "!nd_dft_wlteh_webp_3") || strings.Contains(m.URL, "!nd_dft_wgth_webp_3")) {
-				startIdx := strings.LastIndex(m.URL, "/")
-				if startIdx <= 0 {
-					log.Printf("get high image failed: startIdx <= 0:%v", m.URL)
-					continue
-				}
-				id := ""
-				if strings.Contains(m.URL, "!nd_dft_wlteh_webp_3") {
-					id = utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wlteh_webp_3")
-				} else {
-					id = utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wgth_webp_3")
-				}
-
-				m.BackupURL = m.URL
-				m.URL = fmt.Sprintf("https://ci.xiaohongshu.com/%v?imageView2/2/w/format/png", id)
-				//log.Printf("set high img:%v", m.URL)
-			} else {
-				log.Printf("get high image failed: not contains nd_dft_wlteh_webp_3:%v", m.URL)
-			}
-		}
-
-		masterURL := ""
-		if len(noteDetail.Note.Video.Media.Stream.H264) > 0 {
-			masterURL = noteDetail.Note.Video.Media.Stream.H264[0].MasterURL
-		}
-
-		for _, elem := range noteDetail.Note.ImageList {
-			live := ""
-			for _, h := range elem.Stream.H264 {
-				if h.MasterURL != "" {
-					live = h.MasterURL
-					break
-				}
-				for _, u := range h.BackupUrls {
-					if strings.Contains(u, ".mp4") || strings.Contains(u, ".mov") {
-						if live == "" || strings.Contains(u, "sign") {
-							live = u
-						}
-					}
-				}
-			}
-			if live != "" {
-				resp.Medias = append(resp.Medias, Media{
-					Type: "live",
-					URL:  live,
-				})
-			}
-		}
-
-		origKey := noteDetail.Note.Video.Consumer.OriginVideoKey
-
-		if masterURL == "" || origKey == "" {
-			continue
-		}
-
-		masterURLObj, _ := url.Parse(masterURL)
-		videoURL := strings.TrimSuffix(masterURL, masterURLObj.Path) + "/" + origKey
-
-		if strings.Contains(videoURL, "sns-video-qc.xhscdn.com") {
-			log.Printf("XXXXXX FIND LOW QUALITY VIDEO:%v", videoURL)
-			continue
-		}
-
-		resp.Medias = append(resp.Medias, Media{
-			Type: "video",
-			URL:  videoURL,
-		})
-
-	}
-
-	log.Printf("get %v medias", len(resp.Medias))
-
-	if resp.Title == "" && resp.Content != "" {
-		resp.Title = resp.Content
-	}
-
-	movieMedias := []Media{}
-	for _, m := range resp.Medias {
-		if m.Type == "video" {
-			movieMedias = append(movieMedias, m)
-		}
-	}
-	if len(movieMedias) > 0 { //如果有了视频，则图片是视频封面，不需要
-		resp.Medias = movieMedias
-	}
-
-	/*
-		for _, url := range downloadURLs {
-			code, imgData, err := netutil.HttpGetRaw(url.URL)
-			if err != nil || code != 200 {
-				continue
-			}
-			fileTitle := fmt.Sprintf("%v_%v", utils.ShortTitle(author), utils.ShortTitle(title))
-			log.Infof("fileTitle:%v", fileTitle)
-			suffix := ".jpg"
-			if url.Type == "video" {
-				suffix = ".mp4"
-			}
-			fileDir := fmt.Sprintf("output/%v", time.Now().Format("20060102"))
-			fileName := fmt.Sprintf("%v%v", fileTitle, suffix)
-			fileutil.WriteToFileWithRename(imgData, fileDir, fileName)
-		}
-
-	*/
-	return
+	return resp, nil
 }
 
 func getHttpReq(reqURL string, cookie, xs string) (resp *http.Request) {
@@ -306,227 +133,4 @@ func getHttpReq(reqURL string, cookie, xs string) (resp *http.Request) {
 	req.Header.Set("Cookie", cookie)
 	req.Header.Set("X-S", xs)
 	return req
-}
-
-type NoteResp struct {
-	User struct {
-		LoggedIn  bool `json:"loggedIn"`
-		Activated bool `json:"activated"`
-		UserInfo  struct {
-		} `json:"userInfo"`
-		Follow       []any `json:"follow"`
-		UserPageData struct {
-		} `json:"userPageData"`
-		ActiveTabKey           int     `json:"activeTabKey"`
-		Notes                  [][]any `json:"notes"`
-		IsFetchingNotes        []bool  `json:"isFetchingNotes"`
-		TabScrollTop           []int   `json:"tabScrollTop"`
-		UserFetchingStatus     any     `json:"userFetchingStatus"`
-		UserNoteFetchingStatus any     `json:"userNoteFetchingStatus"`
-		BannedInfo             struct {
-			Code      int    `json:"code"`
-			ShowAlert bool   `json:"showAlert"`
-			Reason    string `json:"reason"`
-		} `json:"bannedInfo"`
-		FirstFetchNote bool `json:"firstFetchNote"`
-		NoteQueries    []struct {
-			Num     int    `json:"num"`
-			Cursor  string `json:"cursor"`
-			UserID  string `json:"userId"`
-			HasMore bool   `json:"hasMore"`
-		} `json:"noteQueries"`
-	} `json:"user"`
-	Note struct {
-		PrevRouteData struct {
-		} `json:"prevRouteData"`
-		PrevRoute     string `json:"prevRoute"`
-		CommentTarget struct {
-		} `json:"commentTarget"`
-		IsImgFullscreen bool   `json:"isImgFullscreen"`
-		GotoPage        string `json:"gotoPage"`
-		FirstNoteID     string `json:"firstNoteId"`
-		AutoOpenNote    bool   `json:"autoOpenNote"`
-		TopCommentID    string `json:"topCommentId"`
-		NoteDetailMap   map[string]struct {
-			Comments struct {
-				List               []any  `json:"list"`
-				Cursor             string `json:"cursor"`
-				HasMore            bool   `json:"hasMore"`
-				Loading            bool   `json:"loading"`
-				FirstRequestFinish bool   `json:"firstRequestFinish"`
-			} `json:"comments"`
-			CurrentTime int64 `json:"currentTime"`
-			Note        struct {
-				User struct {
-					Avatar   string `json:"avatar"`
-					UserID   string `json:"userId"`
-					Nickname string `json:"nickname"`
-				} `json:"user"`
-				InteractInfo struct {
-					CommentCount   string `json:"commentCount"`
-					ShareCount     string `json:"shareCount"`
-					Followed       bool   `json:"followed"`
-					Relation       string `json:"relation"`
-					Liked          bool   `json:"liked"`
-					LikedCount     string `json:"likedCount"`
-					Collected      bool   `json:"collected"`
-					CollectedCount string `json:"collectedCount"`
-				} `json:"interactInfo"`
-				ImageList []struct {
-					URL      string `json:"url"`
-					TraceID  string `json:"traceId"`
-					InfoList []struct {
-						ImageScene string `json:"imageScene"`
-						URL        string `json:"url"`
-					} `json:"infoList"`
-					FileID string `json:"fileId"`
-					Height int    `json:"height"`
-					Width  int    `json:"width"`
-					Stream struct {
-						H264 []struct {
-							StreamDesc string `json:"streamDesc"`
-							//Ssim          int      `json:"ssim"`
-							Width         int      `json:"width"`
-							Duration      int      `json:"duration"`
-							VideoBitrate  int      `json:"videoBitrate"`
-							StreamType    int      `json:"streamType"`
-							VideoCodec    string   `json:"videoCodec"`
-							DefaultStream int      `json:"defaultStream"`
-							AudioDuration int      `json:"audioDuration"`
-							Rotate        int      `json:"rotate"`
-							BackupUrls    []string `json:"backupUrls"`
-							HdrType       int      `json:"hdrType"`
-							Psnr          int      `json:"psnr"`
-							QualityType   string   `json:"qualityType"`
-							Weight        int      `json:"weight"`
-							Format        string   `json:"format"`
-							Size          int      `json:"size"`
-							AvgBitrate    int      `json:"avgBitrate"`
-							Vmaf          int      `json:"vmaf"`
-							MasterURL     string   `json:"masterUrl"`
-							Height        int      `json:"height"`
-							Volume        int      `json:"volume"`
-							VideoDuration int      `json:"videoDuration"`
-							AudioCodec    string   `json:"audioCodec"`
-							AudioChannels int      `json:"audioChannels"`
-							Fps           int      `json:"fps"`
-							AudioBitrate  int      `json:"audioBitrate"`
-						} `json:"h264"`
-						H265 []any `json:"h265"`
-						Av1  []any `json:"av1"`
-					} `json:"stream"`
-				} `json:"imageList"`
-				Video struct {
-					Image struct {
-						ThumbnailFileid  string `json:"thumbnailFileid"`
-						FirstFrameFileid string `json:"firstFrameFileid"`
-					} `json:"image"`
-					Capa struct {
-						Duration int `json:"duration"`
-					} `json:"capa"`
-					Consumer struct {
-						OriginVideoKey string `json:"originVideoKey"`
-					} `json:"consumer"`
-					Media struct {
-						Stream struct {
-							H264 []struct {
-								StreamDesc string `json:"streamDesc"`
-								//Ssim          int      `json:"ssim"`
-								Width         int      `json:"width"`
-								Duration      int      `json:"duration"`
-								VideoBitrate  int      `json:"videoBitrate"`
-								StreamType    int      `json:"streamType"`
-								VideoCodec    string   `json:"videoCodec"`
-								DefaultStream int      `json:"defaultStream"`
-								AudioDuration int      `json:"audioDuration"`
-								Rotate        int      `json:"rotate"`
-								BackupUrls    []string `json:"backupUrls"`
-								HdrType       int      `json:"hdrType"`
-								Psnr          int      `json:"psnr"`
-								QualityType   string   `json:"qualityType"`
-								Weight        int      `json:"weight"`
-								Format        string   `json:"format"`
-								Size          int      `json:"size"`
-								AvgBitrate    int      `json:"avgBitrate"`
-								Vmaf          int      `json:"vmaf"`
-								MasterURL     string   `json:"masterUrl"`
-								Height        int      `json:"height"`
-								Volume        int      `json:"volume"`
-								VideoDuration int      `json:"videoDuration"`
-								AudioCodec    string   `json:"audioCodec"`
-								AudioChannels int      `json:"audioChannels"`
-								Fps           int      `json:"fps"`
-								AudioBitrate  int      `json:"audioBitrate"`
-							} `json:"h264"`
-							H265 []any `json:"h265"`
-							Av1  []any `json:"av1"`
-						} `json:"stream"`
-						VideoID int64 `json:"videoId"`
-						Video   struct {
-							Duration    int    `json:"duration"`
-							Md5         string `json:"md5"`
-							HdrType     int    `json:"hdrType"`
-							DrmType     int    `json:"drmType"`
-							StreamTypes []int  `json:"streamTypes"`
-							BizName     int    `json:"bizName"`
-							BizID       string `json:"bizId"`
-						} `json:"video"`
-					} `json:"media"`
-				} `json:"video"`
-				Time       int64  `json:"time"`
-				IPLocation string `json:"ipLocation"`
-				NoteID     string `json:"noteId"`
-				Type       string `json:"type"`
-				Desc       string `json:"desc"`
-				AtUserList []any  `json:"atUserList"`
-				ShareInfo  struct {
-					UnShare bool `json:"unShare"`
-				} `json:"shareInfo"`
-				Title   string `json:"title"`
-				TagList []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-					Type string `json:"type"`
-				} `json:"tagList"`
-				LastUpdateTime int64 `json:"lastUpdateTime"`
-			} `json:"note"`
-		} `json:"noteDetailMap"`
-		ServerRequestInfo struct {
-			State     string `json:"state"`
-			ErrorCode int    `json:"errorCode"`
-			ErrMsg    string `json:"errMsg"`
-		} `json:"serverRequestInfo"`
-		Volume            int `json:"volume"`
-		RecommendVideoMap struct {
-		} `json:"recommendVideoMap"`
-		VideoFeedType  string `json:"videoFeedType"`
-		Rate           int    `json:"rate"`
-		NoteFromSource string `json:"noteFromSource"`
-	} `json:"note"`
-}
-
-func GetHtmlByChromedp(reqURL, cookie string) (resp []byte) {
-	ctx, cancel := mydp.GetCtxWithCancel()
-	go func() {
-		time.Sleep(300 * time.Second)
-		cancel()
-	}()
-	defer cancel()
-
-	ctx = context.WithValue(ctx, "XHS_COOKIE", cookie)
-
-	content := ""
-	chromedp.Run(ctx,
-		chromedp.ActionFunc(mydp.SetCookie),
-		chromedp.Navigate(reqURL),
-		chromedp.Sleep(10*time.Second),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-
-			//chromedp.InnerHTML(`document.querySelector('div.feeds-tab-container')`, &content, chromedp.ByJSPath).Do(ctx)
-			chromedp.InnerHTML(`document.querySelector('html')`, &content, chromedp.ByJSPath).Do(ctx)
-
-			return nil
-		}),
-	)
-	return []byte(content)
 }

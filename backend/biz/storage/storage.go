@@ -98,6 +98,14 @@ func (s *Storage) GetNote(noteID string) model.Note {
 	return w
 }
 
+func (s *Storage) DeleteUper(id int64, uid string) error {
+	return s.db.From("uper").DeleteStruct(&model.Uper{ID: id, UID: uid})
+}
+
+func (s *Storage) DeleteNote(id int64, noteID string) error {
+	return s.db.From("note").DeleteStruct(&model.Note{ID: id, NoteID: noteID})
+}
+
 func (s *Storage) UpdateNote(w model.Note) error {
 	return s.db.From("note").Update(&w)
 }

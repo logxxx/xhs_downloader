@@ -16,8 +16,6 @@ func main() {
 	//runutil.GoRunSafe(StartDownloadRecrentlyNotes)
 	//runutil.GoRunSafe(StartDownloadNote)
 
-	runutil.GoRunSafe(StartScanMyShoucang)
-
 	//runutil.GoRunSafe(FixFailedVideo)
 
 	//runutil.GoRunSafe(StartFillFileSize)

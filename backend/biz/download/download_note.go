@@ -8,6 +8,7 @@ import (
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/xhs_downloader/biz/black"
 	"github.com/logxxx/xhs_downloader/biz/blog"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/model"
@@ -27,7 +28,7 @@ func ParseNoteAndSaveSourceURL(idx int, n model.Note, cookie string) (result str
 		UperUID   string
 		NoteID    string
 		URL       string
-		Medias    []blog.Media
+		Medias    []blogmodel.Media
 		ParseTime string
 	}
 
@@ -161,22 +162,38 @@ func DownloadNote(n model.Note, directlyUseCookie bool, canChangeCookieWhenRetry
 	}
 
 	log.Infof("start download: %v", n.URL)
-	resp := Download(parseResp, "E:/xhs_downloader_output", true)
+	resp := Download(parseResp, "E:/xhs_downloader_output", true, false)
 	//resp := Download(parseResp, "chore/download/notes_by_uper", true)
 	log.Infof("download resp:%+v", resp)
 
+	UpdateDownloadRespToDB(model.Uper{}, n, resp)
+
+	return
+}
+
+func UpdateDownloadRespToDB(u model.Uper, n model.Note, parseResults []blogmodel.Media) {
+
+	//log.Infof("UpdateDownloadRespToDB uper:%+v note:%+v parseResults(%v):%+v", u, n, len(parseResults), parseResults)
+	log.Infof("UpdateDownloadRespToDB start. note:%v", n.Title)
+	defer func() {
+		log.Infof("UpdateDownloadRespToDB finish")
+	}()
+
 	isChanged := false
-	for _, m := range resp {
+	for _, m := range parseResults {
 		if m.DownloadPath == "" {
 			continue
 		}
 		isChanged = true
 		switch m.Type {
 		case "image":
+			n.ImageURLs = append(n.ImageURLs, m.URL)
 			n.Images = append(n.Images, m.DownloadPath)
 		case "video":
+			n.VideoURL = m.URL
 			n.Video = m.DownloadPath
 		case "live":
+			n.LiveURLs = append(n.LiveURLs, m.URL)
 			n.Lives = append(n.Lives, m.DownloadPath)
 		}
 	}
@@ -184,35 +201,47 @@ func DownloadNote(n model.Note, directlyUseCookie bool, canChangeCookieWhenRetry
 	if isChanged {
 		n.DownloadTime = time.Now()
 
-		if n.FileSize <= 0 {
-			totalSize := int64(0)
-			for _, elem := range n.Images {
-				totalSize += utils.GetFileSize(elem)
-			}
-			for _, elem := range n.Lives {
-				totalSize += utils.GetFileSize(elem)
-			}
+		//if n.FileSize <= 0 {
+		//	totalSize := int64(0)
+		//	for _, elem := range n.Images {
+		//		totalSize += utils.GetFileSize(elem)
+		//	}
+		//	for _, elem := range n.Lives {
+		//		totalSize += utils.GetFileSize(elem)
+		//	}
+		//
+		//	if n.Video != "" {
+		//		totalSize += utils.GetFileSize(n.Video)
+		//	}
+		//	log.Infof("update file size:%v", utils.GetShowSize(totalSize))
+		//	n.FileSize = totalSize
+		//}
 
-			if n.Video != "" {
-				totalSize += utils.GetFileSize(n.Video)
-			}
-			log.Infof("update file size:%v", utils.GetShowSize(totalSize))
-			n.FileSize = totalSize
-		}
-
-		_, err = storage.GetStorage().InsertOrUpdateNote(n)
+		_, err := storage.GetStorage().InsertOrUpdateNote(n)
 		if err != nil {
 			log.Errorf("InsertOrUpdateNote err:%v n:%+v", err, n)
 		}
 
-		newNote := storage.GetStorage().GetNote(n.NoteID)
-		log.Infof("after update, note:%+v", newNote)
+		//newNote := storage.GetStorage().GetNote(n.NoteID)
+		//log.Infof("after update, note:%+v", newNote)
 
 	} else {
 		log.Infof("no change, no need to update")
 	}
 
-	return
+	dbU := storage.GetStorage().GetUper(0, u.UID)
+	if dbU.ID > 0 {
+		u.GalleryEmptyLastTime = dbU.GalleryEmptyLastTime
+		u.Notes = dbU.Notes
+	}
+
+	u.AddNote(n.NoteID)
+
+	if u.UID != "" {
+		result, err := storage.GetStorage().InsertOrUpdateUper(u)
+		log.Infof("InsertOrUpdateUper input:%+v result:%v err:%v", u, result, err)
+	}
+
 }
 
 func DownloadNoteByID(note string) (err error) {

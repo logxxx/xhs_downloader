@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/xhs_downloader/biz/blog"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
 	"log"
 	"strings"
@@ -16,7 +17,7 @@ func main() {
 		UperUID   string
 		NoteID    string
 		URL       string
-		Medias    []blog.Media
+		Medias    []blogmodel.Media
 		ParseTime string
 	}
 	infos := []SaveInfo{}
@@ -52,7 +53,7 @@ func main1() {
 		UperUID   string
 		NoteID    string
 		URL       string
-		Medias    []blog.Media
+		Medias    []blogmodel.Media
 		ParseTime string
 	}
 	infos := []SaveInfo{}

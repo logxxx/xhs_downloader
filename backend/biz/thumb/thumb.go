@@ -13,6 +13,11 @@ import (
 )
 
 func MakeThumb(downloadPath string) {
+
+	if utils.HasFile(filepath.Join(filepath.Dir(downloadPath), ".thumb", filepath.Base(downloadPath))) {
+		return
+	}
+
 	filePath := downloadPath
 
 	fileSize := utils.GetFileSize(filePath)

@@ -56,7 +56,7 @@ func TestExtract(t *testing.T) {
 
 func TestParseBlog4(t *testing.T) {
 	reqURL := `
-https://www.xiaohongshu.com/explore/672f0f45000000001b013c81?xsec_token=AB8Y-s_hYQFiNAEWgoEBoODjitbUn0wr756enRCwjhom8=&xsec_source=pc_user
+https://www.xiaohongshu.com/explore/65e6bb87000000000b02388f?xsec_token=ABuruyfUp04FQHTgJ_KwaKI2kbe2M0W2xDpJMj1ObuAXk=&xsec_source=pc_search&source=web_search_result_notes
 `
 
 	elems := strings.Split(reqURL, "\n")
@@ -75,7 +75,7 @@ https://www.xiaohongshu.com/explore/672f0f45000000001b013c81?xsec_token=AB8Y-s_h
 		}
 		t.Logf("ParseBlog resp:%+v", resp)
 
-		download.Download(resp, "", false)
+		download.Download(resp, "", true, true)
 	}
 
 }
@@ -91,4 +91,14 @@ func TestScanMyShoucang(t *testing.T) {
 	for i, w := range works {
 		log.Printf("%v: %v", i, w)
 	}
+}
+
+func TestExtractUIDByURL(t *testing.T) {
+	resp := ExtractUIDByURL("https://www.xiaohongshu.com/user/profile/5c26e25b0000000006012115/66878434000000001e013b34?xsec_token=ABxNqPSOjYrmndfjK5aHZSpCbnjomEoNZY_0KSEG1F9SM=&xsec_source=pc_user")
+	t.Logf("uid:%v", resp)
+}
+
+func TestConvImageUrlToHighQuality(t *testing.T) {
+	resp := mydp.ConvImageUrlToHighQuality("http://sns-webpic-qc.xhscdn.com/202411231845/0b2dd039a9b292a197ba1af2f8d5b653/1040g2sg31ae01hvrna0g5n2uu3lk0lr4toa9bv0!nd_prv_wlteh_webp_3")
+	t.Logf("resp: %v", resp)
 }

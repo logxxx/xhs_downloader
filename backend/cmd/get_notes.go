@@ -121,7 +121,7 @@ func DownloadUperNPageNotes(uid string, n int) {
 		AvatarURL:        parseUper.AvatarURL,
 		IsGirl:           parseUper.IsGirl,
 		Desc:             parseUper.Desc,
-		Tags:             parseUper.Tags,
+		HomeTags:         parseUper.Tags,
 		FansCount:        parseUper.FansCount,
 		ReceiveLikeCount: parseUper.ReceiveLikeCount,
 		CreateTime:       time.Now(),
@@ -162,7 +162,7 @@ func DownloadUperNPageNotes(uid string, n int) {
 		result := download.DownloadNote(dbNote, true, true)
 		log.Printf("Downlaod Result:%v", result)
 
-		DownloadPoster(dbNote)
+		//DownloadPoster(dbNote)
 	}
 
 	DownloadUperAvatar(uper, config.GetDownloadPath())
@@ -247,7 +247,7 @@ func StartGetNotes() {
 			AvatarURL:        parseUper.AvatarURL,
 			IsGirl:           parseUper.IsGirl,
 			Desc:             parseUper.Desc,
-			Tags:             parseUper.Tags,
+			HomeTags:         parseUper.Tags,
 			FansCount:        parseUper.FansCount,
 			ReceiveLikeCount: parseUper.ReceiveLikeCount,
 			CreateTime:       time.Now(),
@@ -289,7 +289,7 @@ func StartGetNotes() {
 			_ = insertOrUpdate
 			log.Printf("InsertOrUpdateNote succ(%v/%v): %+v(%v)", i+1, len(parseNotes), dbNote.Title, insertOrUpdate)
 
-			DownloadPoster(dbNote)
+			//DownloadPoster(dbNote)
 		}
 
 		DownloadUperAvatar(modelUper, config.GetDownloadPath())
@@ -347,87 +347,6 @@ func getAllUpers() []string {
 	return allProfiles
 }
 
-func StartScanMyShoucang() {
-	for {
-
-		upers := []string{}
-
-		upersFile := "chore/myshoucang_50_upers.txt"
-
-		if utils.HasFile(upersFile) {
-			fileutil.ReadByLine(upersFile, func(s string) error {
-				if s == "" {
-					return nil
-				}
-				upers = append(upers, s)
-				return nil
-			})
-			log.Printf("get %v upers from 50_upers.txt", len(upers))
-		}
-
-		notes := []string{}
-		var err error
-		if len(upers) <= 0 {
-			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie1(), -1)
-			if err != nil {
-				log.Errorf("StartScanMyShoucang ScanMyShoucang err:%v", err)
-			}
-
-			fileutil.WriteToFile([]byte(strings.Join(upers, "\n")), upersFile)
-		}
-
-		for _, note := range notes {
-			err = download.DownloadNoteByID(note)
-			if err != nil {
-				log.Errorf("DownloadNoteByID err:%v note:%v", err, note)
-			}
-		}
-
-		hit := false
-		_ = hit
-
-		for i, u := range upers {
-
-			if len(u) != 24 {
-				continue
-			}
-
-			//if u == "6538efba000000000d00672a" {
-			//	hit = true
-			//}
-			//if !hit {
-			//	continue
-			//}
-
-			if u == "5c26e25b0000000006012115" {
-				continue
-			}
-
-			log.Printf("Start scan uper %v/%v: %v", i+1, len(upers), u)
-
-			uper := storage.GetStorage().GetUper(0, u)
-			if uper.ID > 0 {
-				log.Printf("uper already has")
-				//continue
-			}
-
-			DownloadUperNPageNotes(u, -1)
-			cookie.ChangeCookie()
-			time.Sleep(1 * time.Minute)
-		}
-
-		time.Sleep(1 * time.Hour)
-
-		//for {
-		//	if time.Now().Hour() > 8 {
-		//		break
-		//	}
-		//	log.Printf("ScanMyShoucang skip: not time")
-		//	time.Sleep(10 * time.Minute)
-		//}
-	}
-}
-
 func FixFailedVideo() {
 	type Info struct {
 		Title        string
@@ -439,12 +358,13 @@ func FixFailedVideo() {
 	note := Info{}
 	line := 0
 	fileutil.ReadByLine("D:\\mytest\\mywork\\xhs_downloader\\backend\\cmd\\download_failed.txt", func(s string) (e error) {
+
 		line++
 		//富家千金风即视感美甲太有氛围感了美甲💅
 		//https://www.xiaohongshu.com/explore/663c8ae6000000001e0311db?xsec_token=ABvbFhKcuagTZtKpgvCXZSQGNmmP0NZGToqLLf9eRET6Q=&xsec_source=pc_user
 		//E:\xhs_downloader_output\20241030\5b012f40e8ac2b46e32d32a2\video\5b012f40e8ac2b46e32d32a2_663c8ae6000000001e0311db.mp4
 		//http://sns-video-bd.xhscdn.com/pre_post/1040g0cg312ips0n5080g4a5g28nk0cl2ssfuikg
-		if line%4 == 0 {
+		if line%4 == 1 {
 			note.Title = s
 			return
 		}
@@ -456,7 +376,7 @@ func FixFailedVideo() {
 			note.DownlaodPath = s
 			return
 		}
-		if line%4 == 1 {
+		if line%4 == 0 {
 			note.VideoURL = s
 			notes = append(notes, note)
 			note = Info{}
@@ -469,27 +389,59 @@ func FixFailedVideo() {
 		log.Printf("FixFailedVideo note %v/%v: %+v", i+1, len(notes), n)
 		if utils.GetFileSize(n.DownlaodPath) > 1024 {
 			log.Printf("ALREADY HAS FILE!")
-			continue
+		} else {
+			os.Remove(n.DownlaodPath)
+			_, respData, err := netutil.HttpGetRaw(n.VideoURL)
+			if err != nil {
+				log.Errorf("HttpGetRaw err:%v url:%v", err, n.VideoURL)
+				continue
+			}
+			err = fileutil.WriteToFile(respData, n.DownlaodPath)
+			if err != nil {
+				log.Errorf("WriteToFile err:%v path:%v", err, n.DownlaodPath)
+				continue
+			}
 		}
-		os.Remove(n.DownlaodPath)
-		_, respData, err := netutil.HttpGetRaw(n.VideoURL)
-		if err != nil {
-			log.Errorf("HttpGetRaw err:%v url:%v", err, n.VideoURL)
-			continue
+		if !strings.HasPrefix(n.NoteURL, "http") {
+			log.Errorf("******** INVALID NOTE URL:%v", n.NoteURL)
+			return
 		}
-		fileutil.WriteToFile(respData, n.DownlaodPath)
 
 		dbNote := storage.GetStorage().GetNote(ExtractNoteIDByURL(n.NoteURL))
+
+		if n.Title == "" {
+			n.Title = "无标题"
+		}
+		dbNote.Title = n.Title
+		dbNote.NoteID = ExtractNoteIDByURL(n.NoteURL)
+		dbNote.UperUID = ExtractUIDByURL(n.NoteURL)
 		dbNote.Video = n.DownlaodPath
 		dbNote.DownloadNothing = false
 		dbNote.DownloadTime = time.Now()
-		err = storage.GetStorage().UpdateNote(dbNote)
+
+		result, err := storage.GetStorage().InsertOrUpdateNote(dbNote)
 		if err != nil {
 			log.Errorf("UpdateNote err:%v dbNote:%+v", err, dbNote)
+		} else {
+			log.Infof("InsertOrUpdateNote %v", result)
 		}
+		uper := storage.GetStorage().GetUper(0, ExtractUIDByURL(n.NoteURL))
+		if uper.ID > 0 {
+			ok := uper.AddNote(dbNote.NoteID)
+			if ok {
+				result, err = storage.GetStorage().InsertOrUpdateUper(uper)
+				log.Infof("InsertOrUpdateUper result:%v err:%v", result, err)
+			}
+		}
+
 	}
 }
 
 func ExtractNoteIDByURL(noteURL string) string {
 	return utils.Extract(noteURL, "/", "?")
+}
+
+func ExtractUIDByURL(noteURL string) string {
+	//https://www.xiaohongshu.com/user/profile/5c26e25b0000000006012115/66878434000000001e013b34?xsec_token=ABxNqPSOjYrmndfjK5aHZSpCbnjomEoNZY_0KSEG1F9SM=&xsec_source=pc_user
+	return utils.Extract(noteURL, "/user/profile/", "/")
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
+	"os"
 )
 
 var (
@@ -15,6 +16,9 @@ type GlobalConfig struct {
 }
 
 func init() {
+
+	os.Chdir("D:\\mytest\\mywork\\xhs_downloader\\backend\\cmd")
+
 	if !utils.HasFile("chore/config.yaml") {
 		panic("config file not exist")
 	}

@@ -6,8 +6,12 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/logxxx/utils"
+	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/reqresp"
+	"github.com/logxxx/utils/runutil"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
+	"github.com/logxxx/xhs_downloader/biz/crontab"
 	"github.com/logxxx/xhs_downloader/biz/download"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
 	"github.com/logxxx/xhs_downloader/biz/storage"
@@ -46,6 +50,64 @@ func InitWeb() {
 
 	g.StaticFile("/", GetDistDir())
 	g.StaticFS("/dist", gin.Dir(GetDistDir(), true))
+
+	//g.GET("/note/delete", func(c *gin.Context) {
+	//	noteID := c.Query("note_id")
+	//	if noteID == "" {
+	//		reqresp.MakeErrMsg(c, errors.New("empty note_id"))
+	//	}
+	//	err := storage.GetStorage().DeleteNote(noteID)
+	//	reqresp.MakeResp(c, err)
+	//})
+
+	g.GET("/debug/scan_fav", func(c *gin.Context) {
+		_, err := mydp.ScanMyFav(cookie.GetCookie1(), -1)
+		if err != nil {
+			log.Errorf("ScanMyFav err:%v", err)
+			reqresp.MakeErrMsg(c, err)
+			return
+		}
+
+		reqresp.MakeRespOk(c)
+	})
+
+	g.GET("/start_get_shoucang_notes", func(c *gin.Context) {
+		//67407c27000000000800ac3b
+		fileutil.AppendToFile("download_report.txt", fmt.Sprintf("----------------- NEW ROUND START [%v] ----------------\n", time.Now().Format("01/02 15:04")))
+
+		runutil.GoRunSafe(crontab.StartScanMyShoucang)
+
+		reqresp.MakeRespOk(c)
+	})
+
+	g.GET("/test/get_notes2", func(c *gin.Context) {
+		mydp.GetNotes2("589989f450c4b4603cd86e32", cookie.GetCookie3(), func(parseUperInfo mydp.ParseUper, parseResult blogmodel.ParseBlogResp) {
+
+			downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
+
+			download.UpdateDownloadRespToDB(model.Uper{
+				UID:              parseUperInfo.UID,
+				Name:             parseUperInfo.Name,
+				Area:             parseUperInfo.Area,
+				AvatarURL:        parseUperInfo.AvatarURL,
+				IsGirl:           parseUperInfo.IsGirl,
+				Desc:             parseUperInfo.Desc,
+				HomeTags:         parseUperInfo.Tags,
+				FansCount:        parseUperInfo.FansCount,
+				ReceiveLikeCount: parseUperInfo.ReceiveLikeCount,
+			}, model.Note{
+				NoteID:         parseResult.NoteID,
+				URL:            parseResult.BlogURL,
+				UperUID:        parseResult.UserID,
+				Title:          parseResult.Title,
+				Content:        parseResult.Content,
+				DownloadTime:   time.Now(),
+				LikeCount:      parseResult.LikeCount,
+				Tags:           parseResult.Tags,
+				WorkCreateTime: parseResult.NoteCreateTime,
+			}, downloadResult)
+		})
+	})
 
 	g.GET("/download_shoucang", func(c *gin.Context) {
 		_, works, _ := mydp.ScanMyShoucang(cookie.GetCookie(), 1)
@@ -372,27 +434,24 @@ func InitWeb() {
 
 	g.GET("/uper/delete", func(c *gin.Context) {
 		uid := c.Query("uid")
-		if uid == "" {
-			reqresp.MakeErrMsg(c, errors.New("empty uid"))
-			return
-		}
-
-		dbUper := storage.GetStorage().GetUper(0, uid)
-		if dbUper.ID <= 0 {
+		u := storage.GetStorage().GetUper(0, uid)
+		if u.ID <= 0 {
 			reqresp.MakeErrMsg(c, errors.New("uper not found"))
 			return
 		}
 
-		dbUper.IsDelete = true
-		storage.GetStorage().InsertOrUpdateUper(dbUper)
-
-		for _, note := range dbUper.Notes {
+		for _, note := range u.Notes {
 			dbNote := storage.GetStorage().GetNote(note)
+			if dbNote.ID <= 0 {
+				continue
+			}
+
 			DeleteNote(dbNote)
 		}
 
-		reqresp.MakeRespOk(c)
+		storage.GetStorage().DeleteUper(u.ID, u.UID)
 
+		reqresp.MakeRespOk(c)
 	})
 
 	g.GET("/note/delete", func(c *gin.Context) {
@@ -574,9 +633,9 @@ func ArrayB64(input []string) (output []string) {
 func DeleteNote(dbNote model.Note) {
 
 	go func() {
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 		for _, elem := range dbNote.Images {
-			if elem != "" && utils.HasFile(elem) {
+			if elem != "" && utils.HasFile(elem) && !utils.IsDir(elem) {
 				log.Printf("remove Image:%v", elem)
 				os.Remove(elem)
 				thumbFilePath := filepath.Join(filepath.Dir(elem), ".thumb", filepath.Base(elem))
@@ -587,7 +646,7 @@ func DeleteNote(dbNote model.Note) {
 		}
 
 		for _, elem := range dbNote.Lives {
-			if elem != "" && utils.HasFile(elem) {
+			if elem != "" && utils.HasFile(elem) && !utils.IsDir(elem) {
 				log.Printf("remove Live:%v", elem)
 				os.Remove(elem)
 				thumbFilePath := filepath.Join(filepath.Dir(elem), ".thumb", filepath.Base(elem))
@@ -597,7 +656,7 @@ func DeleteNote(dbNote model.Note) {
 			}
 		}
 
-		if dbNote.Video != "" && utils.HasFile(dbNote.Video) {
+		if dbNote.Video != "" && utils.HasFile(dbNote.Video) && !utils.IsDir(dbNote.Video) {
 			log.Printf("remove Video:%v", dbNote.Video)
 			os.Remove(dbNote.Video)
 			thumbFilePath := filepath.Join(filepath.Dir(dbNote.Video), ".thumb", filepath.Base(dbNote.Video))
@@ -606,8 +665,17 @@ func DeleteNote(dbNote model.Note) {
 			}
 		}
 
-		dbNote.IsDelete = true
-
-		storage.GetStorage().UpdateNote(dbNote)
 	}()
+
+	err := storage.GetStorage().DeleteNote(dbNote.ID, "")
+	log.Infof("delete note id:%v err:%v", dbNote.ID, err)
+
+	u := storage.GetStorage().GetUper(0, dbNote.UperUID)
+	if u.ID > 0 {
+		ok := u.RemoveNote(dbNote.NoteID)
+		if ok {
+			storage.GetStorage().InsertOrUpdateUper(u)
+		}
+	}
+
 }

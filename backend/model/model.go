@@ -1,24 +1,31 @@
 package model
 
-import "time"
+import (
+	"github.com/logxxx/utils"
+	"time"
+)
 
 type Uper struct {
-	ID               int64  `storm:"id,increment"` // 自增ID
-	UID              string `storm:"unique"`
-	Name             string `storm:"index"`
-	Area             string
-	AvatarURL        string
-	IsGirl           bool
-	Desc             string
-	Notes            []string
-	Tags             []string `storm:"index"`
-	FansCount        int
-	ReceiveLikeCount int
-	IsLike           bool
-	IsDelete         bool
-	MyTags           []string
-	CreateTime       time.Time `storm:"index"`
-	UpdateTime       time.Time `storm:"index"`
+	ID                   int64  `storm:"id,increment"` // 自增ID
+	UID                  string `storm:"unique"`
+	Name                 string `storm:"index"`
+	Area                 string
+	AvatarURL            string
+	IsGirl               bool
+	Desc                 string
+	Notes                []string
+	NotesLastUpdateTime  time.Time
+	HomeTags             []string //up给自己打的主页tag
+	Tags                 []string `storm:"index"` //我打的tag
+	FansCount            int
+	ReceiveLikeCount     int
+	IsLike               bool
+	IsDelete             bool
+	IsBanned             bool
+	MyTags               []string
+	CreateTime           time.Time `storm:"index"`
+	UpdateTime           time.Time `storm:"index"`
+	GalleryEmptyLastTime time.Time
 }
 
 func (u *Uper) AddNote(n string) bool {
@@ -29,6 +36,20 @@ func (u *Uper) AddNote(n string) bool {
 	}
 	u.Notes = append(u.Notes, n)
 	return true
+}
+
+func (u *Uper) RemoveNote(n string) bool {
+	resp := []string{}
+	isChanged := false
+	for _, u := range u.Notes {
+		if u == n {
+			isChanged = true
+			continue
+		}
+		resp = append(resp, u)
+	}
+	u.Notes = resp
+	return isChanged
 }
 
 func (u *Uper) HasTag(input string) bool {
@@ -51,8 +72,11 @@ type Note struct {
 	DownloadTime    time.Time `storm:"index"`
 	DownloadNothing bool
 	Video           string
+	VideoURL        string
 	Images          []string
+	ImageURLs       []string
 	Lives           []string
+	LiveURLs        []string
 	LikeCount       int
 	IsLike          bool
 	IsDelete        bool
@@ -77,11 +101,18 @@ func (n *Note) IsDownloaded() bool {
 	if n.ID <= 0 {
 		return false
 	}
-	if n.DownloadTime.IsZero() {
-		return false
+
+	if n.Video != "" && utils.HasFile(n.Video) {
+		return true
 	}
-	if len(n.Images) <= 0 && len(n.Lives) <= 0 && n.Video == "" {
-		return false
+
+	if len(n.Images) > 0 && utils.HasFile(n.Images[0]) {
+		return true
 	}
-	return true
+
+	if len(n.Lives) > 0 && utils.HasFile(n.Lives[0]) {
+		return true
+	}
+
+	return false
 }

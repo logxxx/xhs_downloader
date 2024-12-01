@@ -1,16 +1,19 @@
 package download
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"github.com/logxxx/xhs_downloader/biz/blog"
-	"github.com/logxxx/xhs_downloader/biz/thumb"
+	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
+	"github.com/logxxx/xhs_downloader/biz/webhook"
+	log "github.com/sirupsen/logrus"
 	"io"
-	"log"
+
 	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/logxxx/utils"
@@ -32,7 +35,7 @@ var (
 	}
 )
 
-func GetDownloadRealPath(req blog.ParseBlogResp, idx int, mediaType string, downloadPath string) string {
+func GetDownloadRealPath(req blogmodel.ParseBlogResp, idx int, mediaType string, downloadPath string) string {
 
 	downloadPath = filepath.Join(downloadPath, req.UserID)
 
@@ -65,14 +68,28 @@ func GetDownloadRealPath(req blog.ParseBlogResp, idx int, mediaType string, down
 	return fileRealPath
 }
 
-func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBackup bool) (err error, canRetry bool) {
+func downloadMediaByThunder(req blogmodel.ParseBlogResp, idx int, downloadPath string) (err error) {
+
+	m := &req.Medias[idx]
+
+	if utils.HasFile(downloadPath) {
+		log.Infof("ALREADY HAS FILE:%v", downloadPath)
+		m.DownloadPath = downloadPath
+		return
+	}
+
+	_, err = webhook.Download(context.Background(), m.URL, downloadPath, false)
+	if err == nil {
+		m.DownloadPath = downloadPath
+	}
+	return
+}
+
+func downloadMedia(req blogmodel.ParseBlogResp, idx int, downloadPath string, mustUseLocal bool) (err error, canRetry bool) {
 
 	m := &req.Medias[idx]
 
 	reqURL := m.URL
-	if m.BackupURL != "" && useBackup {
-		reqURL = m.BackupURL
-	}
 
 	httpReq, _ := http.NewRequest("GET", reqURL, nil)
 	httpReq.Header.Set("user-agent", uaList[rand.Intn(len(uaList))])
@@ -114,6 +131,18 @@ func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBack
 
 	log.Printf("Downloading %v: %v contentlen:%v", m.Type, m.URL, utils.GetShowSize(httpResp.ContentLength))
 
+	if !mustUseLocal {
+		if httpResp.ContentLength > 1*1024*1024 {
+			_, err = webhook.Download(context.Background(), m.URL, fileRealPath, false)
+			if err == nil {
+				m.DownloadPath = fileRealPath
+				log.Printf("Download by webhook SUCC")
+				return
+			}
+			log.Printf("Download by webhook err:%v", err)
+		}
+	}
+
 	os.MkdirAll(filepath.Dir(fileRealPath), 0755)
 	for {
 		if !utils.HasFile(fileRealPath) {
@@ -138,12 +167,18 @@ func downloadMedia(req blog.ParseBlogResp, idx int, downloadPath string, useBack
 	_, err = io.Copy(f, httpResp.Body)
 	if err != nil {
 		log.Printf("download Copy err:%v path:%v reqURL:%v", err, fileRealPath, reqURL)
+		elems := strings.Split(req.Title, "\n")
+		if len(elems) > 0 {
+			req.Title = elems[0]
+		}
 		fileutil.AppendToFile("download_failed.txt", fmt.Sprintf("%v\n%v\n%v\n%v\n", req.Title, req.BlogURL, fileRealPath, reqURL))
 		canRetry = true
 		return
 	}
 
 	m.DownloadPath = fileRealPath
+
+	log.Infof("DOWNLOAD BY ORIG SUCC! path:%v reqURL:%v", fileRealPath, reqURL)
 
 	return
 }
@@ -152,7 +187,7 @@ var (
 	downloadRetryCount = 0
 )
 
-func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (resp []blog.Media) {
+func Download(req blogmodel.ParseBlogResp, downloadPath string, splitByDate bool, forceUseLocal bool) (resp []blogmodel.Media) {
 	log.Printf("Download start:%v %v", req.Title, req.BlogURL)
 
 	if len(req.Medias) == 0 {
@@ -166,32 +201,30 @@ func Download(req blog.ParseBlogResp, downloadPath string, splitByDate bool) (re
 
 	log.Printf("Downloading to:%v", downloadPath)
 
-	for i := range req.Medias {
-		retryTimes := 0
-		err, canRetry := downloadMedia(req, i, downloadPath, false)
-		if err == nil {
-			thumb.MakeThumb(req.Medias[i].DownloadPath)
-			continue
-		}
-		log.Printf("downloadMedia err:%v", err)
-
-		if !canRetry {
-			continue
-		}
-
-		retryTimes++
-		if retryTimes > 5 {
-			continue
-		}
-		downloadRetryCount++
-		log.Printf("downloadMedia retry![%v]", downloadRetryCount)
-		err, _ = downloadMedia(req, i, downloadPath, true)
-
-		if err == nil {
-			thumb.MakeThumb(req.Medias[i].DownloadPath)
-		}
-
+	for idx := range req.Medias {
+		i := idx
+		downloadMedia(req, i, downloadPath, forceUseLocal)
 	}
+
+	//for idx := range req.Medias {
+	//	i := idx
+	//	if req.Medias[i].Type == "live" || (len(req.Medias) <= 5 && req.Medias[i].Type == "image") {
+	//		downloadMedia(req, i, downloadPath, false)
+	//	} else {
+	//		time.Sleep(1 * time.Second)
+	//		dp := GetDownloadRealPath(req, idx, req.Medias[idx].Type, downloadPath)
+	//		req.Medias[idx].DownloadPath = dp
+	//		runutil.GoRunSafe(func() {
+	//			err := downloadMediaByThunder(req, i, dp)
+	//			if err != nil {
+	//				log.Printf("downloadMedia err:%v", err)
+	//			} else {
+	//				thumb.MakeThumb(dp)
+	//			}
+	//		})
+	//	}
+	//
+	//}
 
 	return req.Medias
 }
