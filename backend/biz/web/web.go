@@ -14,6 +14,7 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/crontab"
 	"github.com/logxxx/xhs_downloader/biz/download"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
+	"github.com/logxxx/xhs_downloader/biz/queue"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"github.com/logxxx/xhs_downloader/config"
@@ -71,6 +72,47 @@ func InitWeb() {
 		reqresp.MakeRespOk(c)
 	})
 
+	g.GET("/start_download", func(c *gin.Context) {
+		runutil.GoRunSafe(func() {
+
+			for {
+				parseResult := blogmodel.ParseBlogResp{}
+				queue.Pop("parse_blog", &parseResult)
+
+				downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
+
+				download.UpdateDownloadRespToDB(model.Uper{
+					UID:              parseResult.Uper.UID,
+					Name:             parseResult.Uper.Name,
+					Area:             parseResult.Uper.Area,
+					AvatarURL:        parseResult.Uper.AvatarURL,
+					IsGirl:           parseResult.Uper.IsGirl,
+					Desc:             parseResult.Uper.Desc,
+					HomeTags:         parseResult.Uper.Tags,
+					FansCount:        parseResult.Uper.FansCount,
+					ReceiveLikeCount: parseResult.Uper.ReceiveLikeCount,
+				}, model.Note{
+					NoteID:         parseResult.NoteID,
+					URL:            parseResult.BlogURL,
+					UperUID:        parseResult.UserID,
+					Title:          parseResult.Title,
+					Content:        parseResult.Content,
+					DownloadTime:   time.Now(),
+					LikeCount:      parseResult.LikeCount,
+					Tags:           parseResult.Tags,
+					WorkCreateTime: parseResult.NoteCreateTime,
+				}, downloadResult)
+			}
+
+		})
+		reqresp.MakeRespOk(c)
+	})
+
+	g.GET("/pause_or_continue_get_shoucang_notes", func(c *gin.Context) {
+		crontab.IsPaused = !crontab.IsPaused
+		reqresp.MakeResp(c, crontab.IsPaused)
+	})
+
 	g.GET("/start_get_shoucang_notes", func(c *gin.Context) {
 		//67407c27000000000800ac3b
 		fileutil.AppendToFile("download_report.txt", fmt.Sprintf("----------------- NEW ROUND START [%v] ----------------\n", time.Now().Format("01/02 15:04")))
@@ -81,20 +123,20 @@ func InitWeb() {
 	})
 
 	g.GET("/test/get_notes2", func(c *gin.Context) {
-		mydp.GetNotes2("589989f450c4b4603cd86e32", cookie.GetCookie3(), func(parseUperInfo mydp.ParseUper, parseResult blogmodel.ParseBlogResp) {
+		mydp.GetNotes2("589989f450c4b4603cd86e32", cookie.GetCookie3(), func(parseResult blogmodel.ParseBlogResp) {
 
 			downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
 
 			download.UpdateDownloadRespToDB(model.Uper{
-				UID:              parseUperInfo.UID,
-				Name:             parseUperInfo.Name,
-				Area:             parseUperInfo.Area,
-				AvatarURL:        parseUperInfo.AvatarURL,
-				IsGirl:           parseUperInfo.IsGirl,
-				Desc:             parseUperInfo.Desc,
-				HomeTags:         parseUperInfo.Tags,
-				FansCount:        parseUperInfo.FansCount,
-				ReceiveLikeCount: parseUperInfo.ReceiveLikeCount,
+				UID:              parseResult.Uper.UID,
+				Name:             parseResult.Uper.Name,
+				Area:             parseResult.Uper.Area,
+				AvatarURL:        parseResult.Uper.AvatarURL,
+				IsGirl:           parseResult.Uper.IsGirl,
+				Desc:             parseResult.Uper.Desc,
+				HomeTags:         parseResult.Uper.Tags,
+				FansCount:        parseResult.Uper.FansCount,
+				ReceiveLikeCount: parseResult.Uper.ReceiveLikeCount,
 			}, model.Note{
 				NoteID:         parseResult.NoteID,
 				URL:            parseResult.BlogURL,

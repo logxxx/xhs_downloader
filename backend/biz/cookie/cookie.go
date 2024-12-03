@@ -38,6 +38,10 @@ func ChangeCookie() {
 	cookie = cookies[idx]
 }
 
+func SetCookie1Disabled() {
+	isCookieDisabled[0] = true
+}
+
 func GetCookie() string {
 	return cookie
 }

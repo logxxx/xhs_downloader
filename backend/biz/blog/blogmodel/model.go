@@ -28,6 +28,7 @@ type ParseBlogResp struct {
 	FailedReason      string
 	IsFromRemote      bool
 	UseCookie         string
+	Uper              ParseUper
 }
 
 func (resp *ParseBlogResp) GetMediaSimpleInfo() string {

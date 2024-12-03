@@ -8,18 +8,17 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/download"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
+	"github.com/logxxx/xhs_downloader/biz/queue"
 	"github.com/logxxx/xhs_downloader/biz/storage"
-	"github.com/logxxx/xhs_downloader/model"
+	utils2 "github.com/logxxx/xhs_downloader/utils"
 	log "github.com/sirupsen/logrus"
-	"os"
 	"strings"
 	"time"
 )
 
-func IsBlackUid(uid string) bool {
-	data, _ := os.ReadFile("chore/black_uids.txt")
-	return strings.Contains(string(data), uid)
-}
+var (
+	IsPaused = false
+)
 
 func StartScanMyShoucang() {
 
@@ -63,19 +62,29 @@ func StartScanMyShoucang() {
 
 		continueEmptyWorkTimes := 0
 		for i, u := range upers {
+			log.Infof("scan upers %v/%v:%v", i+1, len(upers), u)
+			for {
+				if IsPaused {
+					log.Printf("pausing...")
+					time.Sleep(10 * time.Second)
+				} else {
+					break
+				}
+			}
 
 			if len(u) != 24 {
 				continue
 			}
 
-			if u == "66e554dc000000000b0309ba" {
+			if u == "5c500b7a000000001803676c" {
 				hit = true
+				continue
 			}
 			if !hit {
-				//continue
+				continue
 			}
 
-			if IsBlackUid(u) {
+			if utils2.IsBlackUid(u) {
 				log.Infof("is black uid:%v", u)
 				continue
 			}
@@ -83,14 +92,16 @@ func StartScanMyShoucang() {
 			log.Printf("Start scan uper %v/%v: %v", i+1, len(upers), u)
 
 			dbUper := storage.GetStorage().GetUper(0, u)
-			if dbUper.ID > 0 && time.Since(dbUper.GalleryEmptyLastTime).Hours() < 24 {
+			if dbUper.ID > 0 && time.Since(dbUper.GalleryEmptyLastTime).Hours() < 3*24 {
 				log.Printf("GalleryEmptyLastTime too recent:%v", dbUper.GalleryEmptyLastTime.Format("2006-01-02 15:04:05"))
 				continue
 			}
 
-			if dbUper.ID > 0 && time.Since(dbUper.NotesLastUpdateTime).Hours() < 24 {
+			if dbUper.ID > 0 && time.Since(dbUper.NotesLastUpdateTime).Hours() < 3*24 {
 				log.Printf("NotesLastUpdateTime too recent:%v", dbUper.NotesLastUpdateTime.Format("2006-01-02 15:04:05"))
 				continue
+			} else {
+				log.Printf("NotesLastUpdateTime:%v", dbUper.NotesLastUpdateTime)
 			}
 
 			if dbUper.IsBanned {
@@ -104,31 +115,10 @@ func StartScanMyShoucang() {
 
 			fileutil.AppendToFile("download_report.txt", fmt.Sprintf("\n%v/%v %v\n", i+1, len(upers), uperURL))
 
-			noteResp, _ := mydp.GetNotes2(u, cookie.GetCookie(), func(parseUperInfo mydp.ParseUper, parseResult blogmodel.ParseBlogResp) {
+			noteResp, _ := mydp.GetNotes2(u, cookie.GetCookie(), func(parseResult blogmodel.ParseBlogResp) {
 
-				downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
+				queue.Push("parse_blog", parseResult)
 
-				download.UpdateDownloadRespToDB(model.Uper{
-					UID:              parseUperInfo.UID,
-					Name:             parseUperInfo.Name,
-					Area:             parseUperInfo.Area,
-					AvatarURL:        parseUperInfo.AvatarURL,
-					IsGirl:           parseUperInfo.IsGirl,
-					Desc:             parseUperInfo.Desc,
-					HomeTags:         parseUperInfo.Tags,
-					FansCount:        parseUperInfo.FansCount,
-					ReceiveLikeCount: parseUperInfo.ReceiveLikeCount,
-				}, model.Note{
-					NoteID:         parseResult.NoteID,
-					URL:            parseResult.BlogURL,
-					UperUID:        parseResult.UserID,
-					Title:          parseResult.Title,
-					Content:        parseResult.Content,
-					DownloadTime:   time.Now(),
-					LikeCount:      parseResult.LikeCount,
-					Tags:           parseResult.Tags,
-					WorkCreateTime: parseResult.NoteCreateTime,
-				}, downloadResult)
 			})
 
 			record := []string{"\n----------------------------------------", fmt.Sprintf("%v [%v/%v] %v %v_NOTES", time.Now().Format("2006/01/02 15:04:05"), i+1, len(upers), u, noteResp.NoteCount)}

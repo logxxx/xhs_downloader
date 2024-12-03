@@ -23,12 +23,12 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/blog/blogutil"
 	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/storage"
+	utils2 "github.com/logxxx/xhs_downloader/utils"
 	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"moul.io/http2curl"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -38,10 +38,10 @@ import (
 func GetCtxWithCancel() (context.Context, func()) {
 	var options []chromedp.ExecAllocatorOption
 	//options = append(options, chromedp.DisableGPU)
-	options = append(options, chromedp.Flag("ignore-certificate-errors", true))
-	options = append(options, chromedp.Flag("disable-web-security", true))
-	options = append(options, chromedp.Flag("enable-automation", false))                       //防止监测webdriver
-	options = append(options, chromedp.Flag("disable-blink-features", "AutomationControlled")) //禁用blink特征
+	//options = append(options, chromedp.Flag("ignore-certificate-errors", true))
+	//options = append(options, chromedp.Flag("disable-web-security", true))
+	//options = append(options, chromedp.Flag("enable-automation", false))                       //防止监测webdriver
+	//options = append(options, chromedp.Flag("disable-blink-features", "AutomationControlled")) //禁用blink特征
 
 	//Flag("disable-features", "site-per-process,Translate,BlinkGenPropertyTrees"),
 	//options = append(options, chromedp.Flag("blink-settings", "imagesEnabled=false"))
@@ -221,7 +221,7 @@ func convFeedResp2ParseResult(blogURL string, feedResp *blogmodel.FeedResp) (res
 	return parseResult
 }
 
-func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, parseResult blogmodel.ParseBlogResp)) (resp GetNotes2Resp, err error) {
+func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel.ParseBlogResp)) (resp GetNotes2Resp, err error) {
 
 	uperURL := fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%v?channel_type=web_note_detail_r10&parent_page_channel_type=web_profile_board", uid)
 
@@ -241,6 +241,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 	xsecToken := ""
 	noteID := ""
 	downloadFinishMsg := ""
+	continueLowLikeCount := 0
 
 	downloaded := map[string]bool{} //key: note_id
 	uniqNoteIDMap := map[string]bool{}
@@ -249,77 +250,94 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 		resp.NoteCount = len(uniqNoteIDMap)
 	}()
 
-	parseUperInfo := ParseUper{}
+	parseUperInfo := blogmodel.ParseUper{}
 
 	continueParseBlogFailedCount := 0
+	_ = continueParseBlogFailedCount
+	highLikeCount := 0
 
-	// 创建一个chromedp的实例并设置监听网络请求的选项
+	reqHeader := http.Header{}
+
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
 		switch ev := ev.(type) {
 		case *network.EventRequestWillBeSent:
-
 			if !strings.Contains(ev.Request.URL, "web/v1/feed") {
 				return
 			}
-
-			defer func() {
-				downloadFinishMsg = noteID
-				log.Infof("ListenTarget for feed finish. set downloadFinishMsg = noteID = %v", downloadFinishMsg)
-			}()
-
-			reqContent := `{"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"}`
-			reqContent = fmt.Sprintf(reqContent, noteID, xsecToken)
-			fileutil.WriteToFile([]byte(reqContent), "req_body.json")
-			reqBuf := bytes.NewBufferString(reqContent)
-			//log.Printf("START REQUEST FEED url:%v reqBody:%v", ev.Request.URL, reqContent)
-			httpReq, _ := http.NewRequest("POST", ev.Request.URL, reqBuf)
+			if reqHeader.Get("x-s-common") != "" {
+				return
+			}
 			for k, v := range ev.Request.Headers {
-				httpReq.Header.Set(k, fmt.Sprintf("%v", v))
+				reqHeader.Set(k, fmt.Sprintf("%v", v))
+				log.Infof("set header: %v: %+v", k, v)
 			}
-			httpReq.Header.Set("Cookie", cookie)
-
-			curl, err := http2curl.GetCurlCommand(httpReq)
-			if err == nil {
-				fileutil.WriteToFile([]byte(curl.String()), "curl")
-			}
-
-			respCode, respBytes, err := netutil.HttpDo(httpReq)
-			_ = respCode
-			//log.Printf("HttpDo respCode:%v resp:%v err:%v", respCode, string(respBytes), err)
-
-			feedResp := &blogmodel.FeedResp{}
-
-			if strings.Contains(string(respBytes), "访问频次异常") {
-				resp.IsHitRisk = true
-				resp.Records = append(resp.Records, "访问频次异常")
-				cancel()
-			}
-
-			json.Unmarshal(respBytes, feedResp)
-
-			parseResult := convFeedResp2ParseResult(ev.Request.URL, feedResp)
-
-			if len(parseResult.Medias) > 0 {
-				continueParseBlogFailedCount = 0
-			}
-
-			reportContent := fmt.Sprintf(" t:%v like:%v title:%v blogURL:%v",
-				time.Now().Format("01/02 15:04"), parseResult.LikeCount, parseResult.Title, parseResult.BlogURL)
-
-			reportContent = fmt.Sprintf("feedApi进行下载(%v)", parseResult.GetMediaSimpleInfo()) + reportContent
-			fileutil.AppendToFile("download_report.txt", reportContent)
-
-			resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:FeedApi", len(resp.Records)+1, noteID, parseResult.GetMediaSimpleInfo()))
-
-			parseResultHandler(parseUperInfo, parseResult)
-
-		case *network.EventResponseReceived:
-			//if strings.Contains(ev.Response.URL, "web/v1/feed") {
-			//	log.Printf("接口响应捕获: %v, RespHeaders:%+v ev.Response.RequestHeaders:%+v", ev.Response.URL, ev.Response.Headers, ev.Response.RequestHeaders)
-			//}
-
 		}
 	})
+
+	// 创建一个chromedp的实例并设置监听网络请求的选项
+	/*
+		chromedp.ListenTarget(ctx, func(ev interface{}) {
+			switch ev := ev.(type) {
+			case *network.EventRequestWillBeSent:
+
+				if !strings.Contains(ev.Request.URL, "web/v1/feed") {
+					return
+				}
+
+				defer func() {
+					downloadFinishMsg = noteID
+					log.Infof("ListenTarget for feed finish. set downloadFinishMsg = noteID = %v", downloadFinishMsg)
+				}()
+
+				reqContent := `{"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"}`
+				reqContent = fmt.Sprintf(reqContent, noteID, xsecToken)
+				fileutil.WriteToFile([]byte(reqContent), "req_body.json")
+				reqBuf := bytes.NewBufferString(reqContent)
+				//log.Printf("START REQUEST FEED url:%v reqBody:%v", ev.Request.URL, reqContent)
+				httpReq, _ := http.NewRequest("POST", ev.Request.URL, reqBuf)
+				for k, v := range ev.Request.Headers {
+					httpReq.Header.Set(k, fmt.Sprintf("%v", v))
+				}
+				httpReq.Header.Set("Cookie", cookie)
+
+				curl, err := http2curl.GetCurlCommand(httpReq)
+				if err == nil {
+					fileutil.WriteToFile([]byte(curl.String()), "curl")
+				}
+
+				respCode, respBytes, err := netutil.HttpDo(httpReq)
+				_ = respCode
+				//log.Printf("HttpDo respCode:%v resp:%v err:%v", respCode, string(respBytes), err)
+
+				feedResp := &blogmodel.FeedResp{}
+
+				if strings.Contains(string(respBytes), "访问频次异常") {
+					resp.IsHitRisk = true
+					resp.Records = append(resp.Records, "访问频次异常")
+					cancel()
+				}
+
+				json.Unmarshal(respBytes, feedResp)
+
+				parseResult := convFeedResp2ParseResult(ev.Request.URL, feedResp)
+
+				if len(parseResult.Medias) > 0 {
+					continueParseBlogFailedCount = 0
+				}
+
+				reportContent := fmt.Sprintf(" t:%v like:%v title:%v blogURL:%v",
+					time.Now().Format("01/02 15:04"), parseResult.LikeCount, parseResult.Title, parseResult.BlogURL)
+
+				reportContent = fmt.Sprintf("feedApi进行下载(%v)", parseResult.GetMediaSimpleInfo()) + reportContent
+				fileutil.AppendToFile("download_report.txt", reportContent)
+
+				resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:FeedApi", len(resp.Records)+1, noteID, parseResult.GetMediaSimpleInfo()))
+
+				parseResultHandler(parseUperInfo, parseResult)
+			}
+		})
+
+	*/
 
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(SetCookie),
@@ -357,11 +375,11 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 			lastFirstAndLastNoteID := ""
 			for {
 
-				if continueDownloadedTimes > 10 {
-					log.Printf("RETURN: UPER RECENTLY HAS NO NEW NOTE")
-					//resp.Records = append(resp.Records, "RETURN: UPER RECENTLY HAS NO NEW NOTE")
-					//break
-				}
+				//if continueDownloadedTimes > 10 {
+				//	log.Printf("RETURN: UPER RECENTLY HAS NO NEW NOTE")
+				//	resp.Records = append(resp.Records, "RETURN: UPER RECENTLY HAS NO NEW NOTE")
+				//	break
+				//}
 
 				currNotes := []*cdp.Node{}
 				err = chromedp.Run(ctx, chromedp.Nodes(".cover.ld.mask", &currNotes))
@@ -452,7 +470,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 					if title != "" {
 						title = utils.Extract(title, ">", "<")
 					}
-					log.Infof("Get title:%v", title)
+					//log.Infof("Get title:%v", title)
 				})
 
 				runutil.GoRunSafe(func() {
@@ -470,7 +488,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 							break
 						}
 					}
-					log.Infof("Get poster:%v", poster)
+					//log.Infof("Get poster:%v", poster)
 				})
 
 				runutil.GoRunSafe(func() {
@@ -479,15 +497,41 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 					if err != nil {
 						log.Errorf("get likeCountStr err:%v sel:%v", err, selector)
 					}
-					log.Infof("Get likeCountStr:%v", likeCountStr)
+					//log.Infof("Get likeCountStr:%v", likeCountStr)
+					if likeCountStr == "" {
+						likeCountStr = "-1"
+					}
+
 				})
 
-				time.Sleep(2 * time.Second)
+				for {
+					if likeCountStr != "" {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
 
 				reportContent := fmt.Sprintf(" t:%v like:%v title:%v blogURL:%v poster:%v\n",
 					time.Now().Format("01/02 15:04"), likeCountStr, title, "https://www.xiaohongshu.com/"+href, poster)
 
 				likeCount, _ := strconv.Atoi(likeCountStr)
+				if strings.Contains(likeCountStr, "万") {
+					likeCount = 10000
+				}
+				if likeCount > 100 {
+					highLikeCount++
+				}
+
+				if likeCount < 10 {
+					continueLowLikeCount++
+				} else {
+					continueLowLikeCount = 0
+				}
+				if continueLowLikeCount > 10 {
+					log.Infof("由于低质note过多，放弃")
+					utils2.WriteBlackUid(uid, "低质(连续10个点赞<10的笔记)")
+					break
+				}
 
 				if reason := black.HitBlack(title, href); reason != "" {
 					reportContent = fmt.Sprintf("跳过下载(命中黑字:%v)", reason) + reportContent
@@ -497,8 +541,9 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 				}
 
 				//len(uniqNoteIDMap) > 2: 最近的可能还没收到点赞。姑且先下了
-				if len(uniqNoteIDMap) > 2 && !strings.Contains(likeCountStr, "万") && likeCount < 10 && !black.IsWhite(title) {
-					reportContent = "跳过下载(点赞太少)" + reportContent
+
+				if len(uniqNoteIDMap) > 2 && likeCount < 5 && !black.IsWhite(title) {
+					reportContent = fmt.Sprintf("跳过下载(点赞太少[%v页%v个])", page, likeCount) + reportContent
 					log.Infof(reportContent)
 					fileutil.AppendToFile("download_report.txt", reportContent)
 					continue
@@ -527,17 +572,11 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 				parseResp, err := blog.ParseBlog(blogURL, cookie)
 				if err == nil && len(parseResp.Medias) > 0 {
 					log.Infof("ParseBlog SUCC. len(media):%v", len(parseResp.Medias))
-					parseResultHandler(ParseUper{
-						Name:             parseResp.Author,
-						Desc:             "",
-						UID:              parseResp.UserID,
-						Area:             "",
-						IsGirl:           false,
-						FansCount:        0,
-						ReceiveLikeCount: 0,
-						AvatarURL:        "",
-						Tags:             nil,
-					}, parseResp)
+					parseResp.Uper = blogmodel.ParseUper{
+						Name: parseResp.Author,
+						UID:  parseResp.UserID,
+					}
+					parseResultHandler(parseResp)
 					time.Sleep(1 * time.Second)
 					isRemote := ""
 					if parseResp.IsFromRemote {
@@ -552,25 +591,124 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 					continue
 				} else {
 					log.Infof("html解析失败:%v", noteID)
-					continueParseBlogFailedCount++
-					if continueParseBlogFailedCount > 5 {
-						reportContent = fmt.Sprintf("解析失败次数过多 %v\n", uid)
-						fileutil.AppendToFile("download_report.txt", reportContent)
-						log.Infof("解析失败次数过多")
-						break
-					}
+					//continueParseBlogFailedCount++
+					//if continueParseBlogFailedCount > 5 {
+					//	reportContent = fmt.Sprintf("解析失败次数过多 %v\n", uid)
+					//	fileutil.AppendToFile("download_report.txt", reportContent)
+					//	log.Infof("解析失败次数过多")
+					//	break
+					//}
 					//continue //风控，不能往下走了
+				}
+
+				//feedAPI对点赞的要求更高
+				if !black.IsWhite(title) {
+					if highLikeCount > 10 {
+						if likeCount < 10 {
+							reportContent = fmt.Sprintf("跳过下载(点赞太少[%v页%v个])", page, likeCount) + reportContent
+							log.Infof(reportContent)
+							fileutil.AppendToFile("download_report.txt", reportContent)
+							continue
+						}
+					} else {
+						if likeCount < 10*page {
+							reportContent = fmt.Sprintf("跳过下载(点赞太少[%v页%v个])", page, likeCount) + reportContent
+							log.Infof(reportContent)
+							fileutil.AppendToFile("download_report.txt", reportContent)
+							continue
+						}
+					}
 				}
 
 				log.Printf("extract noteID:%v xsec_token:%v", noteID, xsecToken)
 
-				//************************** hook start *****************************
-				evalResp := map[string]interface{}{}
-				errMsg := chromedp.Evaluate(`window._webmsxyw("/api/sns/web/v1/feed",{"source_note_id":"6746f2560000000007032141","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"ABlDmvLp27Z6py2807XtRA-O6QMnIu6ZSyTXwSukgS1uo="})`, &evalResp).Do(ctx).Error()
-				log.Printf("evalResp:%+v errMsg:%v", evalResp, errMsg)
-				time.Sleep(2 * time.Second)
-				os.Exit(1)
-				//************************** hook end *****************************
+				//************************** eval start *****************************
+				//
+				if len(reqHeader) <= 0 {
+					target := fmt.Sprintf("document.querySelectorAll('.note-item')[%v]", currRoundNodeIdx)
+					log.Printf("start click target:%v", target)
+					err = chromedp.Click(target, chromedp.ByJSPath).Do(ctx)
+					time.Sleep(1 * time.Second)
+					robotgo.KeyDown("right")
+					time.Sleep(500 * time.Millisecond)
+					robotgo.KeyDown("right")
+					time.Sleep(500 * time.Millisecond)
+					chromedp.KeyEvent(kb.Escape).Do(ctx)
+					time.Sleep(1 * time.Second)
+				}
+
+				command := `var reqURL="/api/sns/web/v1/feed"; var reqData={"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"};var result=window._webmsxyw(reqURL,reqData);copy(result);result`
+				command = fmt.Sprintf(command, noteID, xsecToken)
+				xs, xt, err := GetXsXt(noteID, xsecToken)
+				if err != nil {
+					log.Errorf("GetXsXt err:%v", err)
+				} else if xs != "" && xt > 0 {
+					reqContent := `{"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"}`
+					reqContent = fmt.Sprintf(reqContent, noteID, xsecToken)
+					fileutil.WriteToFile([]byte(reqContent), "req_body.json")
+					reqBuf := bytes.NewBufferString(reqContent)
+					//log.Printf("START REQUEST FEED url:%v reqBody:%v", ev.Request.URL, reqContent)
+					reqURL := "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
+					httpReq, _ := http.NewRequest("POST", reqURL, reqBuf)
+					for k, v := range reqHeader {
+						httpReq.Header.Set(k, fmt.Sprintf("%v", v))
+					}
+					httpReq.Header.Set("Content-Type", "application/json; charset=utf-8")
+					httpReq.Header.Set("Origin", "https://www.xiaohongshu.com")
+					httpReq.Header.Set("referer", "https://www.xiaohongshu.com/")
+					httpReq.Header.Set("content-length", "")
+					httpReq.Header.Set("cookie", cookie2.GetCookie1())
+					httpReq.Header.Set("X-s", xs)
+					httpReq.Header.Set("X-t", fmt.Sprintf("%v", xt))
+
+					curl, err := http2curl.GetCurlCommand(httpReq)
+					if err == nil {
+						fileutil.WriteToFile([]byte(curl.String()), "curl.txt")
+					}
+
+					respCode, respBytes, err2 := netutil.HttpDo(httpReq)
+					if err2 != nil {
+						log.Errorf("call feed api err:%v", err)
+					}
+					_ = respCode
+					log.Printf("HttpDo respCode:%v resp:%v err:%v", respCode, string(respBytes), err)
+
+					feedResp := &blogmodel.FeedResp{}
+
+					if strings.Contains(string(respBytes), "访问频次异常") {
+						resp.IsHitRisk = true
+						resp.Records = append(resp.Records, "访问频次异常")
+						cookie2.SetCookie1Disabled()
+						cancel()
+					}
+
+					json.Unmarshal(respBytes, feedResp)
+
+					parseResult := convFeedResp2ParseResult(blogURL, feedResp)
+
+					if len(parseResult.Medias) > 0 {
+						continueParseBlogFailedCount = 0
+					}
+
+					reportContent := fmt.Sprintf(" t:%v like:%v title:%v blogURL:%v",
+						time.Now().Format("01/02 15:04"), parseResult.LikeCount, parseResult.Title, parseResult.BlogURL)
+
+					reportContent = fmt.Sprintf("feedApi进行下载(%v)", parseResult.GetMediaSimpleInfo()) + reportContent
+					fileutil.AppendToFile("download_report.txt", reportContent)
+
+					resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:FeedApi", len(resp.Records)+1, noteID, parseResult.GetMediaSimpleInfo()))
+
+					parseResult.Uper = parseUperInfo
+
+					parseResultHandler(parseResult)
+
+					continue
+
+				}
+
+				continue
+
+				//************************** eval end *****************************
 
 				downloadFinishMsg = ""
 
@@ -636,7 +774,55 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseUper ParseUper, 
 	return
 }
 
-func GetNotes(uid, cookie string, pageCount int) (uper ParseUper, notes []ParseNote, err error) {
+func MoveAndClick(x, y int) {
+	time.Sleep(1 * time.Second)
+	robotgo.Move(x, y)
+	robotgo.Click()
+}
+
+func GetXsXt(noteID, xsecToken string) (xs string, xt int, err error) {
+	command := `var reqURL="/api/sns/web/v1/feed"; var reqData={"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"};var result=window._webmsxyw(reqURL,reqData);copy(result)`
+	command = fmt.Sprintf(command, noteID, xsecToken)
+
+	robotgo.WriteAll(command)
+
+	//点击chrome
+	MoveAndClick(1760, 23)
+
+	time.Sleep(500 * time.Millisecond)
+
+	robotgo.KeyTap("v", "ctrl")
+	time.Sleep(500 * time.Millisecond)
+
+	robotgo.KeyDown("enter")
+
+	rawEvalResp := ""
+	for i := 0; i < 10; i++ {
+		rawEvalResp, err = robotgo.ReadAll()
+		log.Infof("read eval%v resp:%v err:%v", i+1, rawEvalResp, err)
+		if !strings.Contains(rawEvalResp, "source_note_id") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	type EvalResp struct {
+		Xs string `json:"X-s"`
+		Xt int    `json:"X-t"`
+	}
+
+	evalResp := &EvalResp{}
+	err = json.Unmarshal([]byte(rawEvalResp), evalResp)
+	if err != nil {
+		return
+	}
+
+	log.Infof("evalResp:%+v", evalResp)
+
+	return evalResp.Xs, evalResp.Xt, nil
+}
+
+func GetNotes(uid, cookie string, pageCount int) (uper blogmodel.ParseUper, notes []blogmodel.ParseNote, err error) {
 
 	uperURL := fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%v?channel_type=web_note_detail_r10&parent_page_channel_type=web_profile_board", uid)
 
@@ -740,26 +926,6 @@ func GetNotes(uid, cookie string, pageCount int) (uper ParseUper, notes []ParseN
 	uper.UID = uid
 
 	return
-}
-
-type ParseNote struct {
-	NoteID    string
-	Title     string
-	URL       string
-	Poster    string
-	LikeCount int
-}
-
-type ParseUper struct {
-	Name             string
-	Desc             string
-	UID              string
-	Area             string
-	IsGirl           bool
-	FansCount        int
-	ReceiveLikeCount int
-	AvatarURL        string
-	Tags             []string
 }
 
 func ScanMyFav(cookie string, pageCount int) (upers []string, err error) {
@@ -945,7 +1111,7 @@ func ScanMyShoucang(cookie string, pageCount int) (upers, works []string, err er
 	return
 }
 
-func ParseHtml(uid string, content string) (uper ParseUper, notes []ParseNote, err error) {
+func ParseHtml(uid string, content string) (uper blogmodel.ParseUper, notes []blogmodel.ParseNote, err error) {
 
 	d, err := goquery.NewDocumentFromReader(bytes.NewBufferString(content))
 	if err != nil {
@@ -1013,7 +1179,7 @@ func ParseHtml(uid string, content string) (uper ParseUper, notes []ParseNote, e
 
 	d.Find("section").Each(func(i int, s *goquery.Selection) {
 
-		note := ParseNote{}
+		note := blogmodel.ParseNote{}
 
 		//feeds-tab-container
 		if !s.HasClass("note-item") {

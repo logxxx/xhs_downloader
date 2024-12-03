@@ -1,6 +1,8 @@
 module github.com/logxxx/xhs_downloader
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.6
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.0
