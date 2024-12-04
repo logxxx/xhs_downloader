@@ -637,8 +637,6 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 					time.Sleep(1 * time.Second)
 				}
 
-				command := `var reqURL="/api/sns/web/v1/feed"; var reqData={"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"};var result=window._webmsxyw(reqURL,reqData);copy(result);result`
-				command = fmt.Sprintf(command, noteID, xsecToken)
 				xs, xt, err := GetXsXt(noteID, xsecToken)
 				if err != nil {
 					log.Errorf("GetXsXt err:%v", err)
@@ -781,7 +779,7 @@ func MoveAndClick(x, y int) {
 }
 
 func GetXsXt(noteID, xsecToken string) (xs string, xt int, err error) {
-	command := `var reqURL="/api/sns/web/v1/feed"; var reqData={"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"};var result=window._webmsxyw(reqURL,reqData);copy(result)`
+	command := `var reqURL="/api/sns/web/v1/feed"; var reqData={"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"};var result=window._webmsxyw(reqURL,reqData);copy(result);result;`
 	command = fmt.Sprintf(command, noteID, xsecToken)
 
 	robotgo.WriteAll(command)

@@ -116,3 +116,9 @@ func (n *Note) IsDownloaded() bool {
 
 	return false
 }
+
+type Work struct {
+	BlogURL   string
+	NoteID    string
+	XSecToken string
+}

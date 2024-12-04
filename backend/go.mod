@@ -14,7 +14,6 @@ require (
 	github.com/go-vgo/robotgo v0.110.5
 	github.com/logxxx/utils v1.0.84
 	github.com/sirupsen/logrus v1.9.3
-	gocv.io/x/gocv v0.39.0
 	moul.io/http2curl v1.0.0
 )
 
