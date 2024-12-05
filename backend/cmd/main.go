@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/logxxx/utils/runutil"
 	"github.com/logxxx/xhs_downloader/biz/black"
+	_ "github.com/logxxx/xhs_downloader/biz/remote_work"
 	"github.com/logxxx/xhs_downloader/biz/web"
 	"time"
 )
