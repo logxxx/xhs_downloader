@@ -117,14 +117,15 @@ func ConvImageUrlToHighQuality(imgURL string) (resp string) {
 }
 
 type GetNotes2Resp struct {
-	NoteCount      int
-	IsGalleryEmpty bool
-	IsUperBanned   bool
-	IsHitRisk      bool
-	Records        []string
+	NoteCount                  int
+	IsGalleryEmpty             bool
+	IsUperBanned               bool
+	IsHitRisk                  bool
+	Records                    []string
+	DownloadNoteCountByFeedApi int //实际通过feed api触发了下载的note数量
 }
 
-func convFeedResp2ParseResult(blogURL string, feedResp *blogmodel.FeedResp) (resp blogmodel.ParseBlogResp) {
+func ConvFeedResp2ParseResult(blogURL string, feedResp *blogmodel.FeedResp) (resp blogmodel.ParseBlogResp) {
 
 	if len(feedResp.Data.Items) <= 0 {
 		log.Printf("resp.Data.Items IS EMPTY")
@@ -319,7 +320,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 				json.Unmarshal(respBytes, feedResp)
 
-				parseResult := convFeedResp2ParseResult(ev.Request.URL, feedResp)
+				parseResult := ConvFeedResp2ParseResult(ev.Request.URL, feedResp)
 
 				if len(parseResult.Medias) > 0 {
 					continueParseBlogFailedCount = 0
@@ -682,7 +683,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 					json.Unmarshal(respBytes, feedResp)
 
-					parseResult := convFeedResp2ParseResult(blogURL, feedResp)
+					parseResult := ConvFeedResp2ParseResult(blogURL, feedResp)
 
 					if len(parseResult.Medias) > 0 {
 						continueParseBlogFailedCount = 0
@@ -692,6 +693,9 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 						time.Now().Format("01/02 15:04"), parseResult.LikeCount, parseResult.Title, parseResult.BlogURL)
 
 					reportContent = fmt.Sprintf("feedApi进行下载(%v)", parseResult.GetMediaSimpleInfo()) + reportContent
+
+					resp.DownloadNoteCountByFeedApi++
+
 					fileutil.AppendToFile("download_report.txt", reportContent)
 
 					resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:FeedApi", len(resp.Records)+1, noteID, parseResult.GetMediaSimpleInfo()))
@@ -699,6 +703,8 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 					parseResult.Uper = parseUperInfo
 
 					parseResultHandler(parseResult)
+
+					time.Sleep(10 * time.Second)
 
 					continue
 

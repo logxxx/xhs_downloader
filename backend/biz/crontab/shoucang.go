@@ -116,9 +116,7 @@ func StartScanMyShoucang() {
 			fileutil.AppendToFile("download_report.txt", fmt.Sprintf("\n%v/%v %v\n", i+1, len(upers), uperURL))
 
 			noteResp, _ := mydp.GetNotes2(u, cookie.GetCookie(), func(parseResult blogmodel.ParseBlogResp) {
-
 				queue.Push("parse_blog", parseResult)
-
 			})
 
 			record := []string{"\n----------------------------------------", fmt.Sprintf("%v [%v/%v] %v %v_NOTES", time.Now().Format("2006/01/02 15:04:05"), i+1, len(upers), u, noteResp.NoteCount)}
@@ -142,6 +140,15 @@ func StartScanMyShoucang() {
 			}
 
 			log.Infof("UPER [%v/%v]%v GET %v NOTES", i+1, len(upers), u, noteResp.NoteCount)
+
+			sleepMin := noteResp.DownloadNoteCountByFeedApi
+			if sleepMin > 10 {
+				sleepMin = 10
+			}
+			for i := 0; i < sleepMin; i++ {
+				log.Printf("SLEEPING %v/%v...", i, sleepMin)
+				time.Sleep(time.Minute)
+			}
 
 			if !noteResp.IsGalleryEmpty && noteResp.NoteCount <= 0 {
 				log.Infof("GET EMPTY NOTE")

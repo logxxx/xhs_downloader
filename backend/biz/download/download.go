@@ -140,6 +140,7 @@ func downloadMedia(req blogmodel.ParseBlogResp, idx int, downloadPath string, mu
 				return
 			}
 			log.Printf("Download by webhook err:%v", err)
+			panic(err)
 		}
 	}
 

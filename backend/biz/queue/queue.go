@@ -28,7 +28,7 @@ var (
 	popLock  sync.Mutex
 )
 
-func Pop(queueName string, obj interface{}) (err error) {
+func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 
 	logger := log.WithField("func_name", "Pop")
 
@@ -81,6 +81,9 @@ func Pop(queueName string, obj interface{}) (err error) {
 		}
 
 		if len(files) <= 0 {
+			if !isWait {
+				return
+			}
 			time.Sleep(1 * time.Second)
 			continue
 		}

@@ -6,16 +6,57 @@ import (
 	"fmt"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
+	"github.com/logxxx/utils/runutil"
 	"github.com/logxxx/xhs_downloader/biz/black"
 	"github.com/logxxx/xhs_downloader/biz/blog"
 	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
+	"github.com/logxxx/xhs_downloader/biz/queue"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"strings"
 	"time"
 )
+
+func init() {
+	StartDownload()
+}
+
+func StartDownload() {
+	runutil.GoRunSafe(func() {
+
+		for {
+			parseResult := blogmodel.ParseBlogResp{}
+			queue.Pop("parse_blog", &parseResult, true)
+
+			downloadResult := Download(parseResult, "E:/xhs_downloader_output", true, false)
+
+			UpdateDownloadRespToDB(model.Uper{
+				UID:              parseResult.Uper.UID,
+				Name:             parseResult.Uper.Name,
+				Area:             parseResult.Uper.Area,
+				AvatarURL:        parseResult.Uper.AvatarURL,
+				IsGirl:           parseResult.Uper.IsGirl,
+				Desc:             parseResult.Uper.Desc,
+				HomeTags:         parseResult.Uper.Tags,
+				FansCount:        parseResult.Uper.FansCount,
+				ReceiveLikeCount: parseResult.Uper.ReceiveLikeCount,
+			}, model.Note{
+				NoteID:         parseResult.NoteID,
+				URL:            parseResult.BlogURL,
+				UperUID:        parseResult.UserID,
+				Title:          parseResult.Title,
+				Content:        parseResult.Content,
+				DownloadTime:   time.Now(),
+				LikeCount:      parseResult.LikeCount,
+				Tags:           parseResult.Tags,
+				WorkCreateTime: parseResult.NoteCreateTime,
+			}, downloadResult)
+		}
+
+	})
+}
 
 func ParseNoteAndSaveSourceURL(idx int, n model.Note, cookie string) (result string) {
 

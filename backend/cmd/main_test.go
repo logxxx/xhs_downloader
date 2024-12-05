@@ -56,7 +56,7 @@ func TestExtract(t *testing.T) {
 
 func TestParseBlog4(t *testing.T) {
 	reqURL := `
-https://www.xiaohongshu.com/explore/65e6bb87000000000b02388f?xsec_token=ABuruyfUp04FQHTgJ_KwaKI2kbe2M0W2xDpJMj1ObuAXk=&xsec_source=pc_search&source=web_search_result_notes
+https://www.xiaohongshu.com/explore/674c67c8000000000703bfa4?xsec_token=ABQHtq6kGx6nsesfTwiV81A-I_DZph8-0JAaLpth98H_Q=&xsec_source=pc_feed
 `
 
 	elems := strings.Split(reqURL, "\n")

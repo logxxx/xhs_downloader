@@ -55,7 +55,7 @@ func TestPush(t *testing.T) {
 	go func() {
 		for {
 			foo := &Foo{}
-			err := Pop("test_queue", foo)
+			err := Pop("test_queue", foo, true)
 			if err != nil {
 				panic(err)
 			}
@@ -66,7 +66,7 @@ func TestPush(t *testing.T) {
 	go func() {
 		for {
 			foo := &Foo{}
-			err := Pop("test_queue", foo)
+			err := Pop("test_queue", foo, true)
 			if err != nil {
 				panic(err)
 			}

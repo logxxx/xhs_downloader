@@ -1,14 +1,12 @@
 package web
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
-	"github.com/logxxx/utils/netutil"
 	"github.com/logxxx/utils/reqresp"
 	"github.com/logxxx/utils/runutil"
 	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
@@ -23,13 +21,10 @@ import (
 	"github.com/logxxx/xhs_downloader/model"
 	"github.com/logxxx/xhs_downloader/proto"
 	log "github.com/sirupsen/logrus"
-	"moul.io/http2curl"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -66,81 +61,6 @@ func InitWeb() {
 	//	reqresp.MakeResp(c, err)
 	//})
 
-	g.GET("/start_wait_for_work", func(c *gin.Context) {
-		runutil.GoRunSafe(func() {
-			round := 0
-			for {
-				if round != 0 {
-					time.Sleep(10 * time.Second)
-				}
-				round++
-				work := &model.Work{}
-				_, err := netutil.HttpGet("http://47.119.170.71:8088/get_work", work)
-				if err != nil {
-					log.Errorf("get work err:%v", err)
-					continue
-				}
-				if work.NoteID == "" {
-					continue
-				}
-				log.Infof("get work:%+v", work)
-				xs, xt, err := mydp.GetXsXt(work.NoteID, work.XSecToken)
-				if err != nil {
-					log.Errorf("GetXsXt err:%v", err)
-					continue
-				}
-				if xs == "" || xt <= 0 {
-					log.Errorf("invalid xs:%v xt:%v", xs, xt)
-					continue
-				}
-
-				reqContent := `{"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"}`
-				reqContent = fmt.Sprintf(reqContent, noteID, xsecToken)
-				fileutil.WriteToFile([]byte(reqContent), "req_body.json")
-				reqBuf := bytes.NewBufferString(reqContent)
-				//log.Printf("START REQUEST FEED url:%v reqBody:%v", ev.Request.URL, reqContent)
-				reqURL := "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
-				httpReq, _ := http.NewRequest("POST", reqURL, reqBuf)
-				for k, v := range reqHeader {
-					httpReq.Header.Set(k, fmt.Sprintf("%v", v))
-				}
-				httpReq.Header.Set("Content-Type", "application/json; charset=utf-8")
-				httpReq.Header.Set("Origin", "https://www.xiaohongshu.com")
-				httpReq.Header.Set("referer", "https://www.xiaohongshu.com/")
-				httpReq.Header.Set("content-length", "")
-				httpReq.Header.Set("cookie", cookie.GetCookie3())
-				httpReq.Header.Set("X-s", xs)
-				httpReq.Header.Set("X-t", fmt.Sprintf("%v", xt))
-
-				curl, err := http2curl.GetCurlCommand(httpReq)
-				if err == nil {
-					fileutil.WriteToFile([]byte(curl.String()), "curl.txt")
-				}
-
-				respCode, respBytes, err2 := netutil.HttpDo(httpReq)
-				if err2 != nil {
-					log.Errorf("call feed api err:%v", err)
-				}
-				_ = respCode
-				log.Printf("HttpDo respCode:%v resp:%v err:%v", respCode, string(respBytes), err)
-
-				feedResp := &blogmodel.FeedResp{}
-
-				if strings.Contains(string(respBytes), "访问频次异常") {
-					resp.IsHitRisk = true
-					resp.Records = append(resp.Records, "访问频次异常")
-					cookie2.SetCookie1Disabled()
-					cancel()
-				}
-
-				json.Unmarshal(respBytes, feedResp)
-
-				parseResult := convFeedResp2ParseResult(blogURL, feedResp)
-
-			}
-		})
-	})
-
 	g.GET("/debug/scan_fav", func(c *gin.Context) {
 		_, err := mydp.ScanMyFav(cookie.GetCookie1(), -1)
 		if err != nil {
@@ -157,7 +77,7 @@ func InitWeb() {
 
 			for {
 				parseResult := blogmodel.ParseBlogResp{}
-				queue.Pop("parse_blog", &parseResult)
+				queue.Pop("parse_blog", &parseResult, true)
 
 				downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
 
