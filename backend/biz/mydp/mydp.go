@@ -20,7 +20,6 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/blog"
 	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/blog/blogutil"
-	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/model"
 	utils2 "github.com/logxxx/xhs_downloader/utils"
@@ -225,7 +224,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 	uperURL := fmt.Sprintf("https://www.xiaohongshu.com/user/profile/%v?channel_type=web_note_detail_r10&parent_page_channel_type=web_profile_board", uid)
 
-	log.Infof("GetNotes2 uperURL:%v useCookie:%v", uperURL, cookie2.GetCookieName(cookie))
+	//log.Infof("GetNotes2 uperURL:%v useCookie:%v", uperURL, cookie2.GetCookieName(cookie))
 
 	ctx, cancel := GetCtxWithCancel()
 	go func() {
@@ -254,6 +253,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 	continueParseBlogFailedCount := 0
 	_ = continueParseBlogFailedCount
 	highLikeCount := 0
+	isParseHTMLFailed := false
 
 	reqHeader := http.Header{}
 
@@ -397,10 +397,10 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 					lastPage = page
 					firstHref, _ := currNotes[0].Attribute("href")
 					firstNoteID := utils.Extract(firstHref, fmt.Sprintf("/user/profile/%v/", uid), "?")
-					log.Printf("--first: %v", firstNoteID)
+					//log.Printf("--first: %v", firstNoteID)
 					lastHref, _ := currNotes[len(currNotes)-1].Attribute("href")
 					lastNoteID := utils.Extract(lastHref, fmt.Sprintf("/user/profile/%v/", uid), "?")
-					log.Printf("--last: %v", lastNoteID)
+					//log.Printf("--last: %v", lastNoteID)
 					currFirstAndLastNoteID := firstNoteID + lastNoteID
 					if currFirstAndLastNoteID == lastFirstAndLastNoteID {
 						log.Infof("翻页后没有新元素，所以退出")
@@ -449,7 +449,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 				xsecToken = utils.Extract(href, "xsec_token=", "&")
 				noteID = utils.Extract(href, fmt.Sprintf("/user/profile/%v/", uid), "?")
 				lastDownloadedNoteID = noteID
-				log.Infof("get curr note: idx=%v href=%v", currRoundNodeIdx, noteID)
+				//log.Infof("get curr note: idx=%v href=%v", currRoundNodeIdx, noteID)
 
 				uniqNoteIDMap[noteID] = true
 
@@ -552,7 +552,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 				dbNote := storage.GetStorage().GetNote(noteID)
 				if dbNote.IsDownloaded() {
-					log.Printf("NOTE(%v/%v) DB DOWNLOADED:%v %v %v", currRoundNodeIdx+1, noteID, len(currNotes), dbNote.ID, dbNote.Title)
+					log.Printf("--DB DOWNLOADED-- NOTE(%v/%v) :%v %v %v", currRoundNodeIdx+1, noteID, len(currNotes), dbNote.ID, dbNote.Title)
 					continueDownloadedTimes++
 					reportContent = "跳过下载(已下载过)" + reportContent
 					fileutil.AppendToFile("download_report.txt", reportContent)
@@ -566,38 +566,42 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 				continueDownloadedTimes = 0
 
-				//如果能通过html拿到，就不要触发feed接口了
 				blogURL := fmt.Sprintf("https://www.xiaohongshu.com/explore/%v?xsec_token=%v&xsec_source=pc_feed", noteID, xsecToken)
-				parseResp, err := blog.ParseBlog(blogURL, cookie)
-				if err == nil && len(parseResp.Medias) > 0 {
-					log.Infof("ParseBlog SUCC. len(media):%v", len(parseResp.Medias))
-					parseResp.Uper = blogmodel.ParseUper{
-						Name: parseResp.Author,
-						UID:  parseResp.UserID,
-					}
-					parseResultHandler(parseResp)
-					time.Sleep(1 * time.Second)
-					isRemote := ""
-					if parseResp.IsFromRemote {
-						isRemote = "_REMOTE"
-					}
-					resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:blog.ParseBlog%v", len(resp.Records)+1, noteID, parseResp.GetMediaSimpleInfo(), isRemote))
 
-					reportContent = fmt.Sprintf("html进行下载(%v)[cookie=%v]", parseResp.GetMediaSimpleInfo(), parseResp.UseCookie) + reportContent
-					fileutil.AppendToFile("download_report.txt", reportContent)
-					log.Infof("html解析成功: %v %v", noteID, parseResp.GetMediaSimpleInfo())
-					continueParseBlogFailedCount = 0
-					continue
-				} else {
-					log.Infof("html解析失败:%v", noteID)
-					//continueParseBlogFailedCount++
-					//if continueParseBlogFailedCount > 5 {
-					//	reportContent = fmt.Sprintf("解析失败次数过多 %v\n", uid)
-					//	fileutil.AppendToFile("download_report.txt", reportContent)
-					//	log.Infof("解析失败次数过多")
-					//	break
-					//}
-					//continue //风控，不能往下走了
+				//如果能通过html拿到，就不要触发feed接口了
+				if !isParseHTMLFailed {
+					parseResp, err := blog.ParseBlog(blogURL, cookie)
+					if err == nil && len(parseResp.Medias) > 0 {
+						//log.Infof("ParseBlog SUCC. len(media):%v", len(parseResp.Medias))
+						parseResp.Uper = blogmodel.ParseUper{
+							Name: parseResp.Author,
+							UID:  parseResp.UserID,
+						}
+						parseResultHandler(parseResp)
+						time.Sleep(1 * time.Second)
+						isRemote := ""
+						if parseResp.IsFromRemote {
+							isRemote = "_REMOTE"
+						}
+						resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:blog.ParseBlog%v", len(resp.Records)+1, noteID, parseResp.GetMediaSimpleInfo(), isRemote))
+
+						reportContent = fmt.Sprintf("html进行下载(%v)[cookie=%v]", parseResp.GetMediaSimpleInfo(), parseResp.UseCookie) + reportContent
+						fileutil.AppendToFile("download_report.txt", reportContent)
+						log.Infof("html解析成功: %v %v", noteID, parseResp.GetMediaSimpleInfo())
+						continueParseBlogFailedCount = 0
+						continue
+					} else {
+						log.Infof("html解析失败:%v", noteID)
+						isParseHTMLFailed = true
+						//continueParseBlogFailedCount++
+						//if continueParseBlogFailedCount > 5 {
+						//	reportContent = fmt.Sprintf("解析失败次数过多 %v\n", uid)
+						//	fileutil.AppendToFile("download_report.txt", reportContent)
+						//	log.Infof("解析失败次数过多")
+						//	break
+						//}
+						//continue //风控，不能往下走了
+					}
 				}
 
 				//feedAPI对点赞的要求更高
@@ -619,7 +623,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 					}
 				}
 
-				log.Printf("extract noteID:%v xsec_token:%v", noteID, xsecToken)
+				//log.Printf("extract noteID:%v xsec_token:%v", noteID, xsecToken)
 
 				SendWork(blogURL, noteID, xsecToken)
 

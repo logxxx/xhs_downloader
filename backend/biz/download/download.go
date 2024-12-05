@@ -129,7 +129,7 @@ func downloadMedia(req blogmodel.ParseBlogResp, idx int, downloadPath string, mu
 		return
 	}
 
-	log.Printf("Downloading %v: %v contentlen:%v", m.Type, m.URL, utils.GetShowSize(httpResp.ContentLength))
+	log.Printf("Downloading %v len:%v", m.Type, utils.GetShowSize(httpResp.ContentLength))
 
 	if !mustUseLocal {
 		if httpResp.ContentLength > 1*1024*1024 {
@@ -189,7 +189,7 @@ var (
 )
 
 func Download(req blogmodel.ParseBlogResp, downloadPath string, splitByDate bool, forceUseLocal bool) (resp []blogmodel.Media) {
-	log.Printf("Download start:%v %v", req.Title, req.BlogURL)
+	//log.Printf("Download start:%v %v", req.Title, req.BlogURL)
 
 	if len(req.Medias) == 0 {
 		log.Printf("**** Download: NOTHING TO DOWNLOAD ****")
@@ -200,7 +200,7 @@ func Download(req blogmodel.ParseBlogResp, downloadPath string, splitByDate bool
 		downloadPath = filepath.Join(downloadPath, fmt.Sprintf("%v", time.Now().Format("20060102")))
 	}
 
-	log.Printf("Downloading to:%v", downloadPath)
+	//log.Printf("Downloading to:%v", downloadPath)
 
 	for idx := range req.Medias {
 		i := idx

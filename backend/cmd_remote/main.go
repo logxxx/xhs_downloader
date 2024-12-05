@@ -8,6 +8,7 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/queue"
+	_ "github.com/logxxx/xhs_downloader/biz/remote_work"
 	"github.com/logxxx/xhs_downloader/model"
 	log "github.com/sirupsen/logrus"
 	"time"

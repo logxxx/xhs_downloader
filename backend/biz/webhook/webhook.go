@@ -51,7 +51,7 @@ type TaskInfoResp struct {
 
 func Download(ctx context.Context, url string, path string, isWait bool) (resp interface{}, err error) {
 
-	log.Infof("webhook.Download start. url:%v path:%v", url, path)
+	//log.Infof("webhook.Download start. url:%v path:%v", url, path)
 
 	createTaskReq := Input{
 		Module:   "download",
@@ -70,7 +70,7 @@ func Download(ctx context.Context, url string, path string, isWait bool) (resp i
 		return
 	}
 
-	log.Printf("create task resp:%+v", createResp)
+	//log.Printf("create task resp:%+v", createResp)
 
 	if createResp.TaskId == "" {
 		err = errors.New("empty createResp.TaskId")

@@ -22,9 +22,16 @@ import (
 
 func init() {
 	if utils.IsWorker() {
+		fmt.Printf("IS WORKER SO StartWaitForWork\n")
 		runutil.GoRunSafe(StartWaitForWork)
 	} else {
+		fmt.Printf("IS WORKER FALSE\n")
+	}
+	if utils.IsMaster() {
+		fmt.Printf("IS MASTER SO StartWaitForWork\n")
 		runutil.GoRunSafe(StartRecvRemoteWorkResult)
+	} else {
+		fmt.Printf("IS MASTER FALSE\n")
 	}
 
 }
@@ -76,7 +83,7 @@ func StartWaitForWork() {
 		httpReq.Header.Set("Origin", "https://www.xiaohongshu.com")
 		httpReq.Header.Set("referer", "https://www.xiaohongshu.com/")
 		httpReq.Header.Set("content-length", "")
-		httpReq.Header.Set("cookie", cookie.GetCookie3())
+		httpReq.Header.Set("cookie", cookie.GetCookie1())
 		httpReq.Header.Set("X-s", xs)
 		httpReq.Header.Set("X-t", fmt.Sprintf("%v", xt))
 

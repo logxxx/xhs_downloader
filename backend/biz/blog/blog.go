@@ -32,10 +32,10 @@ func GetHtmlByApi(reqURL, cookie string) (resp []byte) {
 
 func ParseBlog(reqURL, cookie string) (resp blogmodel.ParseBlogResp, err error) {
 
-	log.Printf("start ParseBlog:%v", reqURL)
+	//log.Printf("start ParseBlog:%v", reqURL)
 
 	defer func() {
-		log.Printf("finish ParseBlog:%v", reqURL)
+		//log.Printf("finish ParseBlog:%v", reqURL)
 	}()
 
 	if !strings.HasPrefix(reqURL, "https:") {
@@ -57,17 +57,17 @@ func ParseBlog(reqURL, cookie string) (resp blogmodel.ParseBlogResp, err error) 
 				videoCount++
 			}
 		}
-		log.Infof("ParseBlog url:%v get %vI%vV%vL total:%v *** useCookie:%v ***", reqURL, imgCount, videoCount, liveCount, imgCount+videoCount+liveCount, cookie2.GetCookieName(resp.UseCookie))
+		//log.Infof("ParseBlog url:%v get %vI%vV%vL total:%v *** useCookie:%v ***", reqURL, imgCount, videoCount, liveCount, imgCount+videoCount+liveCount, cookie2.GetCookieName(resp.UseCookie))
 	}()
 
 	remoteURL := fmt.Sprintf("http://47.119.170.71:8088/parse_blog?blog_url=%v&trace_id=%v", reqURL, randutil.RandStr(8))
 	//remoteURL := fmt.Sprintf("http://127.0.0.1:8088/parse_blog?blog_url=%v&trace_id=%v", reqURL, randutil.RandStr(8))
-	log.Printf("remoteURL:%v", remoteURL)
+	//log.Printf("remoteURL:%v", remoteURL)
 	remoteReq, _ := http.NewRequest("GET", remoteURL, nil)
 	remoteReq.Header.Set("mycookie", cookie)
 	code, err := netutil.HttpReqGet(remoteReq, &resp)
 	if code == 200 {
-		log.Infof("****** GET BLOG INFO FROM REMOTE ******")
+		//log.Infof("****** GET BLOG INFO FROM REMOTE ******")
 		resp.IsFromRemote = true
 		return
 	}

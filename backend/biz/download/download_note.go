@@ -215,9 +215,9 @@ func DownloadNote(n model.Note, directlyUseCookie bool, canChangeCookieWhenRetry
 func UpdateDownloadRespToDB(u model.Uper, n model.Note, parseResults []blogmodel.Media) {
 
 	//log.Infof("UpdateDownloadRespToDB uper:%+v note:%+v parseResults(%v):%+v", u, n, len(parseResults), parseResults)
-	log.Infof("UpdateDownloadRespToDB start. note:%v", n.Title)
+	//log.Infof("UpdateDownloadRespToDB start. note:%v", n.Title)
 	defer func() {
-		log.Infof("UpdateDownloadRespToDB finish")
+		//log.Infof("UpdateDownloadRespToDB finish")
 	}()
 
 	isChanged := false
@@ -280,7 +280,9 @@ func UpdateDownloadRespToDB(u model.Uper, n model.Note, parseResults []blogmodel
 
 	if u.UID != "" {
 		result, err := storage.GetStorage().InsertOrUpdateUper(u)
-		log.Infof("InsertOrUpdateUper input:%+v result:%v err:%v", u, result, err)
+		_ = result
+		_ = err
+		//log.Infof("InsertOrUpdateUper input:%+v result:%v err:%v", u, result, err)
 	}
 
 }

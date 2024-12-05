@@ -210,14 +210,14 @@ func (s *Storage) InsertOrUpdateUper(input model.Uper) (string, error) {
 
 func (s *Storage) GetUper(id int64, uid string) (resp model.Uper) {
 
-	defer func() {
-		newNotes := utils.RemoveEmpty(utils.RemoveDuplicate(resp.Notes))
-		if len(newNotes) != len(resp.Notes) {
-			log.Printf("GetUper %v fix notes:%v=>%v", resp.Name, len(resp.Notes), len(newNotes))
-			resp.Notes = newNotes
-			s.db.From("uper").Update(&resp)
-		}
-	}()
+	//defer func() {
+	//	newNotes := utils.RemoveEmpty(utils.RemoveDuplicate(resp.Notes))
+	//	if len(newNotes) != len(resp.Notes) {
+	//		log.Printf("GetUper %v fix notes:%v=>%v", resp.Name, len(resp.Notes), len(newNotes))
+	//		resp.Notes = newNotes
+	//		s.db.From("uper").Update(&resp)
+	//	}
+	//}()
 
 	if id > 0 {
 		err := s.db.From("uper").One("ID", id, &resp)
