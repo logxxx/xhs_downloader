@@ -10,7 +10,6 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
-	"github.com/chromedp/chromedp/kb"
 	"github.com/go-vgo/robotgo"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/fileutil"
@@ -23,10 +22,10 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/blog/blogutil"
 	cookie2 "github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/storage"
+	"github.com/logxxx/xhs_downloader/model"
 	utils2 "github.com/logxxx/xhs_downloader/utils"
 	log "github.com/sirupsen/logrus"
 	"math/rand"
-	"moul.io/http2curl"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -241,7 +240,6 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 	xsecToken := ""
 	noteID := ""
-	downloadFinishMsg := ""
 	continueLowLikeCount := 0
 
 	downloaded := map[string]bool{} //key: note_id
@@ -623,151 +621,7 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 
 				log.Printf("extract noteID:%v xsec_token:%v", noteID, xsecToken)
 
-				//************************** eval start *****************************
-				//
-				if len(reqHeader) <= 0 {
-					target := fmt.Sprintf("document.querySelectorAll('.note-item')[%v]", currRoundNodeIdx)
-					log.Printf("start click target:%v", target)
-					err = chromedp.Click(target, chromedp.ByJSPath).Do(ctx)
-					time.Sleep(1 * time.Second)
-					robotgo.KeyDown("right")
-					time.Sleep(500 * time.Millisecond)
-					robotgo.KeyDown("right")
-					time.Sleep(500 * time.Millisecond)
-					chromedp.KeyEvent(kb.Escape).Do(ctx)
-					time.Sleep(1 * time.Second)
-				}
-
-				xs, xt, err := GetXsXt(noteID, xsecToken)
-				if err != nil {
-					log.Errorf("GetXsXt err:%v", err)
-				} else if xs != "" && xt > 0 {
-					reqContent := `{"source_note_id":"%v","image_formats":["jpg","webp","avif"],"extra":{"need_body_topic":"1"},"xsec_source":"pc_user","xsec_token":"%v"}`
-					reqContent = fmt.Sprintf(reqContent, noteID, xsecToken)
-					fileutil.WriteToFile([]byte(reqContent), "req_body.json")
-					reqBuf := bytes.NewBufferString(reqContent)
-					//log.Printf("START REQUEST FEED url:%v reqBody:%v", ev.Request.URL, reqContent)
-					reqURL := "https://edith.xiaohongshu.com/api/sns/web/v1/feed"
-					httpReq, _ := http.NewRequest("POST", reqURL, reqBuf)
-					for k, v := range reqHeader {
-						httpReq.Header.Set(k, fmt.Sprintf("%v", v))
-					}
-					httpReq.Header.Set("Content-Type", "application/json; charset=utf-8")
-					httpReq.Header.Set("Origin", "https://www.xiaohongshu.com")
-					httpReq.Header.Set("referer", "https://www.xiaohongshu.com/")
-					httpReq.Header.Set("content-length", "")
-					httpReq.Header.Set("cookie", cookie2.GetCookie1())
-					httpReq.Header.Set("X-s", xs)
-					httpReq.Header.Set("X-t", fmt.Sprintf("%v", xt))
-
-					curl, err := http2curl.GetCurlCommand(httpReq)
-					if err == nil {
-						fileutil.WriteToFile([]byte(curl.String()), "curl.txt")
-					}
-
-					respCode, respBytes, err2 := netutil.HttpDo(httpReq)
-					if err2 != nil {
-						log.Errorf("call feed api err:%v", err)
-					}
-					_ = respCode
-					log.Printf("HttpDo respCode:%v resp:%v err:%v", respCode, string(respBytes), err)
-
-					feedResp := &blogmodel.FeedResp{}
-
-					if strings.Contains(string(respBytes), "访问频次异常") {
-						resp.IsHitRisk = true
-						resp.Records = append(resp.Records, "访问频次异常")
-						cookie2.SetCookie1Disabled()
-						cancel()
-					}
-
-					json.Unmarshal(respBytes, feedResp)
-
-					parseResult := ConvFeedResp2ParseResult(blogURL, feedResp)
-
-					if len(parseResult.Medias) > 0 {
-						continueParseBlogFailedCount = 0
-					}
-
-					reportContent := fmt.Sprintf(" t:%v like:%v title:%v blogURL:%v",
-						time.Now().Format("01/02 15:04"), parseResult.LikeCount, parseResult.Title, parseResult.BlogURL)
-
-					reportContent = fmt.Sprintf("feedApi进行下载(%v)", parseResult.GetMediaSimpleInfo()) + reportContent
-
-					resp.DownloadNoteCountByFeedApi++
-
-					fileutil.AppendToFile("download_report.txt", reportContent)
-
-					resp.Records = append(resp.Records, fmt.Sprintf("\t-%v noteID:%v media:%v scene:FeedApi", len(resp.Records)+1, noteID, parseResult.GetMediaSimpleInfo()))
-
-					parseResult.Uper = parseUperInfo
-
-					parseResultHandler(parseResult)
-
-					time.Sleep(10 * time.Second)
-
-					continue
-
-				}
-
-				continue
-
-				//************************** eval end *****************************
-
-				downloadFinishMsg = ""
-
-				time.Sleep(1 * time.Second)
-				target := fmt.Sprintf("document.querySelectorAll('.note-item')[%v]", currRoundNodeIdx)
-				log.Printf("start click target:%v", target)
-				err = chromedp.Click(target, chromedp.ByJSPath).Do(ctx)
-				if err != nil {
-					log.Printf("click target err:%v target:%v", err, target)
-					resp.Records = append(resp.Records, fmt.Sprintf("click target err:%v target:%v", err, target))
-					return err
-				}
-				log.Printf("finish click target:%v", target)
-
-				//执行click后，会触发上面的Listener,监听到feed接口调用，并执行下载;那边下载完后，会设置isDownloading=false
-
-				//err = chromedp.Click(`document.querySelector('.close-circle')`, chromedp.ByJSPath).Do(ctx)
-				//if err != nil {
-				//	log.Printf("click close-circle err:%v", err)
-				//}
-
-				isDownloadingRound := 0
-
-				for {
-					time.Sleep(1 * time.Second)
-					isDownloadingRound++
-
-					if isDownloadingRound%3 == 0 {
-						log.Printf("press right")
-						robotgo.KeyDown("right")
-					} else {
-						log.Printf("press left")
-						robotgo.KeyDown("left")
-					}
-
-					log.Printf("is downloading [%v] %v...", noteID, isDownloadingRound)
-					if isDownloadingRound > 30 {
-						log.Printf("wait for download finish TIMEOUT")
-						resp.Records = append(resp.Records, fmt.Sprintf("wait for download finish TIMEOUT:%v", noteID))
-						return nil
-					}
-					if downloadFinishMsg != "" {
-						log.Printf("wait for download finish succ!round=%v noteID=%v", isDownloadingRound, downloadFinishMsg)
-						break
-					}
-				}
-
-				err = chromedp.KeyEvent(kb.Escape).Do(ctx)
-				if err != nil {
-					log.Printf("KeyEvent(kb.Escape) err:%v", err)
-					resp.Records = append(resp.Records, fmt.Sprintf("KeyEvent(kb.Escape) err:%v", err))
-					return err
-				}
-
-				time.Sleep(3 * time.Second)
+				SendWork(blogURL, noteID, xsecToken)
 
 			}
 
@@ -776,6 +630,22 @@ func GetNotes2(uid, cookie string, parseResultHandler func(parseResult blogmodel
 	)
 
 	return
+}
+
+func SendWork(blogURL string, noteID string, xsecToken string) {
+	work := &model.Work{
+		BlogURL:   blogURL,
+		NoteID:    noteID,
+		XSecToken: xsecToken,
+	}
+	result := map[string]interface{}{}
+	code, err := netutil.HttpPost("http://47.119.170.71:8088/send_work", work, &result)
+	if err != nil || code != 200 {
+		log.Errorf("send_work err:%v code:%v", err, code)
+		panic(err)
+	} else {
+		log.Infof("send_work SUCC!result:%+v", result)
+	}
 }
 
 func MoveAndClick(x, y int) {
