@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/logxxx/utils/fileutil"
 	"github.com/logxxx/utils/netutil"
-	"github.com/logxxx/utils/runutil"
 	"github.com/logxxx/xhs_downloader/biz/blog/blogmodel"
 	"github.com/logxxx/xhs_downloader/biz/cookie"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
@@ -23,7 +22,7 @@ import (
 
 func GetFeedApiCookie() string {
 	if os.Getenv("FEED_COOKIE") == "cookie1" {
-		return cookie.GetCookie1()
+		return cookie.GetCookie2()
 	}
 	if os.Getenv("FEED_COOKIE") == "cookie2" {
 		return cookie.GetCookie2()
@@ -34,16 +33,16 @@ func GetFeedApiCookie() string {
 	panic(fmt.Sprintf("invalid FEED_COOKIE: [%s]", os.Getenv("FEED_COOKIE")))
 }
 
-func init() {
+func Init() {
 	if utils.IsWorker() {
 		fmt.Printf("IS WORKER SO StartWaitForWork\n")
-		runutil.GoRunSafe(StartWaitForWork)
+		//runutil.GoRunSafe(StartWaitForWork)
 	} else {
 		fmt.Printf("IS WORKER FALSE\n")
 	}
 	if utils.IsMaster() {
-		fmt.Printf("IS MASTER SO StartWaitForWork\n")
-		runutil.GoRunSafe(StartRecvRemoteWorkResult)
+		fmt.Printf("IS MASTER SO StartRecvRemoteWorkResult\n")
+		//runutil.GoRunSafe(StartRecvRemoteWorkResult)
 	} else {
 		fmt.Printf("IS MASTER FALSE\n")
 	}
@@ -142,17 +141,31 @@ func StartWaitForWork() {
 }
 
 func StartRecvRemoteWorkResult() {
+	sleepSec := 10
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(time.Duration(sleepSec) * time.Second)
 		workResult := &blogmodel.ParseBlogResp{}
 		code, err := netutil.HttpGet("http://47.119.170.71:8088/recv_work_result", workResult)
 		log.Infof("recv_work_result code:%v err:%v", code, err)
 		if len(workResult.Medias) <= 0 {
-			log.Infof("recv_work_result get empty media.")
-			continue
+			log.Infof("recv_work_result get empty media. noteID:%v title:%v", workResult.NoteID, workResult.Title)
+		} else {
+			log.Infof("recv_work_result get media:%v", workResult.GetMediaSimpleInfo())
+			queue.Push("parse_blog", workResult)
 		}
-		log.Infof("recv_work_result get media:%v", workResult.GetMediaSimpleInfo())
-		queue.Push("parse_blog", workResult)
+
+		if len(workResult.Medias) >= 1 {
+			sleepSec--
+		} else {
+			sleepSec++
+		}
+		if sleepSec < 1 {
+			sleepSec = 1
+		}
+		if sleepSec > 10 {
+			sleepSec = 10
+		}
+
 	}
 }
 

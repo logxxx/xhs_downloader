@@ -1,11 +1,14 @@
 package blogmodel
 
 type ParseNote struct {
-	NoteID    string
-	Title     string
-	URL       string
-	Poster    string
-	LikeCount int
+	NoteID          string
+	URL             string
+	UperName        string
+	UperUID         string
+	Title           string
+	Poster          string
+	LikeCount       int
+	MideaSimpleInfo string
 }
 
 type ParseUper struct {

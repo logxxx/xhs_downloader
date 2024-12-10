@@ -15,6 +15,7 @@ import (
 	"github.com/logxxx/xhs_downloader/biz/download"
 	"github.com/logxxx/xhs_downloader/biz/mydp"
 	"github.com/logxxx/xhs_downloader/biz/queue"
+	"github.com/logxxx/xhs_downloader/biz/remote_work"
 	"github.com/logxxx/xhs_downloader/biz/storage"
 	"github.com/logxxx/xhs_downloader/biz/thumb"
 	"github.com/logxxx/xhs_downloader/config"
@@ -62,7 +63,7 @@ func InitWeb() {
 	//})
 
 	g.GET("/debug/scan_fav", func(c *gin.Context) {
-		_, err := mydp.ScanMyFav(cookie.GetCookie1(), -1)
+		_, err := mydp.ScanMyFav(cookie.GetCookie2(), -1)
 		if err != nil {
 			log.Errorf("ScanMyFav err:%v", err)
 			reqresp.MakeErrMsg(c, err)
@@ -76,10 +77,11 @@ func InitWeb() {
 		runutil.GoRunSafe(func() {
 
 			for {
+				time.Sleep(10 * time.Second)
 				parseResult := blogmodel.ParseBlogResp{}
 				queue.Pop("parse_blog", &parseResult, true)
 
-				downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
+				downloadResult := download.Download("api.start_download", parseResult, "E:/xhs_downloader_output", true, false)
 
 				download.UpdateDownloadRespToDB(model.Uper{
 					UID:              parseResult.Uper.UID,
@@ -108,6 +110,11 @@ func InitWeb() {
 		reqresp.MakeRespOk(c)
 	})
 
+	g.GET("/start_recv_remote_work_result", func(c *gin.Context) {
+		remote_work.StartRecvRemoteWorkResult()
+		reqresp.MakeRespOk(c)
+	})
+
 	g.GET("/pause_or_continue_get_shoucang_notes", func(c *gin.Context) {
 		crontab.IsPaused = !crontab.IsPaused
 		reqresp.MakeResp(c, crontab.IsPaused)
@@ -125,7 +132,7 @@ func InitWeb() {
 	g.GET("/test/get_notes2", func(c *gin.Context) {
 		mydp.GetNotes2("589989f450c4b4603cd86e32", cookie.GetCookie3(), func(parseResult blogmodel.ParseBlogResp) {
 
-			downloadResult := download.Download(parseResult, "E:/xhs_downloader_output", true, false)
+			downloadResult := download.Download("get_notes2", parseResult, "E:/xhs_downloader_output", true, false)
 
 			download.UpdateDownloadRespToDB(model.Uper{
 				UID:              parseResult.Uper.UID,

@@ -126,7 +126,7 @@ type GetNotes2Resp struct {
 func ConvFeedResp2ParseResult(blogURL string, feedResp *blogmodel.FeedResp) (resp blogmodel.ParseBlogResp) {
 
 	if len(feedResp.Data.Items) <= 0 {
-		log.Printf("resp.Data.Items IS EMPTY")
+		log.Printf("feedAPI.resp.Data.Items IS EMPTY:%+v", feedResp)
 		return
 	}
 

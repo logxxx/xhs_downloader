@@ -67,7 +67,7 @@ https://www.xiaohongshu.com/explore/674c67c8000000000703bfa4?xsec_token=ABQHtq6k
 		if e == "" {
 			continue
 		}
-		resp, err := blog.ParseBlog(e, cookie.GetCookie1())
+		resp, err := blog.ParseBlog(e, cookie.GetCookie2())
 		if err != nil {
 			t.Logf("err:%+v", err)
 			//t.Fatal(err)
@@ -75,7 +75,7 @@ https://www.xiaohongshu.com/explore/674c67c8000000000703bfa4?xsec_token=ABQHtq6k
 		}
 		t.Logf("ParseBlog resp:%+v", resp)
 
-		download.Download(resp, "", true, true)
+		download.Download("TestParseBlog4", resp, "", true, true)
 	}
 
 }

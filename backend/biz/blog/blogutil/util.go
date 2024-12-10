@@ -124,7 +124,10 @@ func ParseNoteHTML(req string) (resp blogmodel.ParseBlogResp, err error) {
 					id = utils.Extract(m.URL[startIdx:], "/", "!nd_dft_wgth_webp_3")
 				}
 
-				m.BackupURL = m.URL
+				if id == "" {
+					continue
+				}
+
 				m.URL = fmt.Sprintf("https://ci.xiaohongshu.com/%v?imageView2/2/w/format/png", id)
 				//log.Printf("set high img:%v", m.URL)
 			} else {

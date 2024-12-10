@@ -19,3 +19,21 @@ func TestDownload(t *testing.T) {
 	}
 	t.Logf("resp:%+v", resp)
 }
+
+func TestListTasks(t *testing.T) {
+	req := Input{
+		Module:   "download",
+		Function: "Infos",
+		Args: map[string]interface{}{
+			"task_id": "",
+		},
+	}
+	resp := map[string]interface{}{}
+
+	err := callWebhook(req, &resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("resp:%+v", resp)
+}

@@ -91,7 +91,7 @@ func main() {
 	})
 	g.GET("/recv_work", func(c *gin.Context) {
 		work := &model.Work{}
-		err = queue.Pop("work", work, false)
+		_, _, err = queue.Pop("work", work, false)
 		if err != nil {
 			reqresp.MakeErrMsg(c, err)
 			return
@@ -123,7 +123,7 @@ func main() {
 	})
 	g.GET("/recv_work_result", func(c *gin.Context) {
 		result := &blogmodel.ParseBlogResp{}
-		err = queue.Pop("work_result", result, false)
+		_, _, err = queue.Pop("work_result", result, false)
 		if err != nil {
 			reqresp.MakeErrMsg(c, err)
 			return

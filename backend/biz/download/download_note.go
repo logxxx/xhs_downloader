@@ -20,17 +20,17 @@ import (
 )
 
 func init() {
-	StartDownload()
+	//StartDownloadParseFinishedBlog()
 }
 
-func StartDownload() {
+func StartDownloadParseFinishedBlog() {
 	runutil.GoRunSafe(func() {
 
 		for {
 			parseResult := blogmodel.ParseBlogResp{}
-			queue.Pop("parse_blog", &parseResult, true)
+			left, scene, _ := queue.Pop("parse_blog", &parseResult, true)
 
-			downloadResult := Download(parseResult, "E:/xhs_downloader_output", true, false)
+			downloadResult := Download(fmt.Sprintf("PopParseBlog_%vleft_%v", left, scene), parseResult, "E:/xhs_downloader_output", true, false)
 
 			UpdateDownloadRespToDB(model.Uper{
 				UID:              parseResult.Uper.UID,
@@ -203,7 +203,7 @@ func DownloadNote(n model.Note, directlyUseCookie bool, canChangeCookieWhenRetry
 	}
 
 	log.Infof("start download: %v", n.URL)
-	resp := Download(parseResp, "E:/xhs_downloader_output", true, false)
+	resp := Download("DownloadNote", parseResp, "E:/xhs_downloader_output", true, false)
 	//resp := Download(parseResp, "chore/download/notes_by_uper", true)
 	log.Infof("download resp:%+v", resp)
 

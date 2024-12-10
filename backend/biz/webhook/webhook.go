@@ -7,11 +7,26 @@ import (
 	"errors"
 	"github.com/logxxx/utils"
 	"github.com/logxxx/utils/netutil"
+	"github.com/logxxx/utils/runutil"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 )
+
+var (
+	downloadingTasks     = map[string]DownloadStat{}
+	downloadingTasksLock sync.Mutex
+	reportOnce           sync.Once
+	waitingCount         = 0
+)
+
+type DownloadStat struct {
+	CreateTime string
+	SourceURL  string
+	DownloadTo string
+}
 
 type Input struct {
 	Module   string      `json:"module"`
@@ -51,7 +66,38 @@ type TaskInfoResp struct {
 
 func Download(ctx context.Context, url string, path string, isWait bool) (resp interface{}, err error) {
 
+	reportOnce.Do(func() {
+		runutil.GoRunSafe(func() {
+			for {
+				time.Sleep(5 * time.Second)
+				downloadingTasksLock.Lock()
+				for key, t := range downloadingTasks {
+					if utils.HasFile(t.DownloadTo) {
+						delete(downloadingTasks, key)
+					}
+				}
+				downloadingTasksLock.Unlock()
+				log.Infof("%v TASKS IS DOWNLOADING.waiting:%v", len(downloadingTasks), waitingCount)
+
+			}
+		})
+	})
+
 	//log.Infof("webhook.Download start. url:%v path:%v", url, path)
+
+	waitingCount++
+
+	waitingRound := 0
+	for {
+		waitingRound++
+		if len(downloadingTasks) < 10 {
+			break
+		}
+		//log.Infof("Download Queue Is Full:%v waiting%v...", len(downloadingTasks), waitingRound)
+		time.Sleep(5 * time.Second)
+	}
+
+	waitingCount--
 
 	createTaskReq := Input{
 		Module:   "download",
@@ -91,6 +137,14 @@ func Download(ctx context.Context, url string, path string, isWait bool) (resp i
 		log.Errorf("callWebhook err:%v startTaskReq:%+v", err, createTaskReq)
 		return
 	}
+
+	downloadingTasksLock.Lock()
+	downloadingTasks[createResp.TaskId] = DownloadStat{
+		CreateTime: time.Now().Format("0102_150405"),
+		SourceURL:  url,
+		DownloadTo: path,
+	}
+	downloadingTasksLock.Unlock()
 
 	if !isWait {
 		return

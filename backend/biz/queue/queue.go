@@ -28,7 +28,7 @@ var (
 	popLock  sync.Mutex
 )
 
-func Pop(queueName string, obj interface{}, isWait bool) (err error) {
+func Pop(queueName string, obj interface{}, isWait bool) (scene string, left int, err error) {
 
 	logger := log.WithField("func_name", "Pop")
 
@@ -59,6 +59,8 @@ func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 		//logger.Infof("after pop. popCache len:%v->%v", popCacheLen, len(popCache))
 
 		os.Remove(elem)
+		scene = "cache"
+		left = len(popCache)
 		return
 	}
 	popCache = []string{}
@@ -77,7 +79,8 @@ func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 		files, e := os.ReadDir(rootDir)
 		if e != nil {
 			logger.Errorf("Pop ReadDir err:%v rootDir:%v", err, rootDir)
-			return e
+			err = e
+			return
 		}
 
 		if len(files) <= 0 {
@@ -85,6 +88,7 @@ func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 				return
 			}
 			time.Sleep(1 * time.Second)
+			scene = "read dir empty"
 			continue
 		}
 
@@ -95,7 +99,7 @@ func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 		err = fileutil.ReadJsonFile(filePath, obj)
 		if err != nil {
 			logger.Errorf("Pop ReadJsonFile err:%v filePath:%v", err, filePath)
-			return err
+			return
 		}
 
 		os.Remove(filePath)
@@ -113,6 +117,9 @@ func Pop(queueName string, obj interface{}, isWait bool) (err error) {
 		break
 
 	}
+
+	scene = "read from dir"
+	left = len(popCache)
 
 	return
 }

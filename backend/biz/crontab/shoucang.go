@@ -42,7 +42,7 @@ func StartScanMyShoucang() {
 		notes := []string{}
 		var err error
 		if len(upers) <= 0 {
-			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie1(), -1)
+			upers, notes, err = mydp.ScanMyShoucang(cookie.GetCookie2(), -1)
 			if err != nil {
 				log.Errorf("StartScanMyShoucang ScanMyShoucang err:%v", err)
 			}

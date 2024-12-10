@@ -1,11 +1,16 @@
 package utils
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 func IsWorker() bool {
-	return os.Getenv("IS_WORKER") != ""
+	fmt.Printf("IS_WORKER env:[%v]", os.Getenv("IS_WORKER"))
+	return os.Getenv("IS_WORKER") == "true"
 }
 
 func IsMaster() bool {
-	return os.Getenv("IS_MASTER") != ""
+	fmt.Printf("IS_MASTER env:[%v]", os.Getenv("IS_MASTER"))
+	return os.Getenv("IS_MASTER") == "true"
 }

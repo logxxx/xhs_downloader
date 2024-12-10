@@ -13,7 +13,9 @@ require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-vgo/robotgo v0.110.5
 	github.com/logxxx/utils v1.0.84
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/sirupsen/logrus v1.9.3
+	gocv.io/x/gocv v0.39.0
 	moul.io/http2curl v1.0.0
 )
 

@@ -26,7 +26,7 @@ func InitWhite(whiteFilePath string) {
 		//panic("black file not found")
 	}
 	fileutil.ReadByLine(whiteFilePath, func(input string) error {
-		log.Printf("insert white:%v", input)
+		//log.Printf("insert white:%v", input)
 		whiteMap[input] = true
 		return nil
 	})
@@ -38,7 +38,7 @@ func InitBlack(blackFilePath string) {
 		//panic("black file not found")
 	}
 	fileutil.ReadByLine(blackFilePath, func(input string) error {
-		log.Printf("insert black:%v", input)
+		//log.Printf("insert black:%v", input)
 		blackMap[input] = true
 		return nil
 	})

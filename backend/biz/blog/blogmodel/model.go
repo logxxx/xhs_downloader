@@ -8,7 +8,6 @@ import (
 type Media struct {
 	Type         string `json:"type,omitempty"`
 	URL          string `json:"url,omitempty"`
-	BackupURL    string `json:"backup_url,omitempty"`
 	DownloadPath string `json:"download_path,omitempty"` //只有下载到本地成功了，这个字段才有值！
 }
 
